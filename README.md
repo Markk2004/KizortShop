@@ -1,6 +1,10 @@
-# KAITAN STORE — Monorepo Architecture
+# KizortShop (KAITAN STORE) — Monorepo Architecture
 
-โปรเจกต์ร้านค้าไอดีเกมและบริการ Roblox อัตโนมัติ 24 ชม. สไตล์ **Refined Luxury Dark** แยกส่วน `frontend/` และ `backend/` อย่างชัดเจนเพื่อให้พัฒนาและเพิ่มฟีเจอร์ได้อิสระ
+โปรเจกต์ร้านค้าไอดีเกมและบริการ Roblox อัตโนมัติ 24 ชม. สไตล์ **Refined Luxury Dark Mode** แยกส่วน `frontend/` และ `backend/` ภายใต้ Git Monorepo เดียวกัน
+
+- **GitHub Repository**: [https://github.com/Markk2004/KizortShop.git](https://github.com/Markk2004/KizortShop.git)
+- **Production / Dev Web**: [http://localhost:3000](http://localhost:3000)
+- **Admin Management Portal**: [http://localhost:3000/admin/dashboard](http://localhost:3000/admin/dashboard)
 
 ---
 
