@@ -1,0 +1,138 @@
+datasource db {
+  provider = "postgresql"
+  url      = env("DATABASE_URL")
+}
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+enum Role {
+  ADMIN
+  MEMBER
+}
+
+enum OrderStatus {
+  COMPLETED
+  PENDING
+  FAILED
+  REFUNDED
+}
+
+enum StockStatus {
+  AVAILABLE
+  RESERVED
+  SOLD
+}
+
+enum TopupStatus {
+  PENDING_VERIFY
+  SUCCESS
+  REJECTED
+}
+
+model User {
+  id           String             @id @default(uuid())
+  username     String             @unique
+  email        String             @unique
+  passwordHash String
+  role         Role               @default(MEMBER)
+  createdAt    DateTime           @default(now())
+  updatedAt    DateTime           @updatedAt
+  wallet       Wallet?
+  orders       Order[]
+  topups       TopupTransaction[]
+  reviews      Review[]
+  tickets      Ticket[]
+}
+
+model Wallet {
+  id        String   @id @default(uuid())
+  userId    String   @unique
+  balance   Decimal  @default(0) @db.Decimal(12, 2)
+  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt DateTime @updatedAt
+}
+
+model Category {
+  id          String    @id @default(uuid())
+  name        String
+  slug        String    @unique
+  description String?
+  image       String
+  products    Product[]
+  createdAt   DateTime  @default(now())
+}
+
+model Product {
+  id            String         @id @default(uuid())
+  code          String         @unique
+  title         String
+  description   String?
+  price         Decimal        @db.Decimal(10, 2)
+  originalPrice Decimal?       @db.Decimal(10, 2)
+  badge         String?
+  image         String
+  categoryId    String
+  category      Category       @relation(fields: [categoryId], references: [id])
+  stocks        AccountStock[]
+  orders        Order[]
+  createdAt     DateTime       @default(now())
+  updatedAt     DateTime       @updatedAt
+}
+
+model AccountStock {
+  id          String      @id @default(uuid())
+  productId   String
+  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
+  credentials String // เข้ารหัสลับ (AES-256) เช่น username:password หรือ game key
+  status      StockStatus @default(AVAILABLE)
+  orderId     String?     @unique
+  order       Order?      @relation(fields: [orderId], references: [id])
+  createdAt   DateTime    @default(now())
+}
+
+model Order {
+  id           String        @id @default(uuid())
+  orderNumber  String        @unique
+  userId       String
+  user         User          @relation(fields: [userId], references: [id])
+  productId    String
+  product      Product       @relation(fields: [productId], references: [id])
+  amount       Decimal       @db.Decimal(10, 2)
+  status       OrderStatus   @default(COMPLETED)
+  deliveredKey AccountStock?
+  createdAt    DateTime      @default(now())
+}
+
+model TopupTransaction {
+  id            String      @id @default(uuid())
+  userId        String
+  user          User        @relation(fields: [userId], references: [id])
+  amount        Decimal     @db.Decimal(10, 2)
+  paymentMethod String // PROMPTPAY_QR, TRUEMONEY
+  slipUrl       String?
+  slipRef       String?
+  status        TopupStatus @default(PENDING_VERIFY)
+  createdAt     DateTime    @default(now())
+}
+
+model Review {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  rating    Int      @default(5)
+  comment   String
+  createdAt DateTime @default(now())
+}
+
+model Ticket {
+  id        String   @id @default(uuid())
+  userId    String
+  user      User     @relation(fields: [userId], references: [id])
+  orderId   String?
+  subject   String
+  detail    String
+  status    String   @default("OPEN")
+  createdAt DateTime @default(now())
+}

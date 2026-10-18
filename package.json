@@ -1,0 +1,15 @@
+{
+  "name": "kaitan-store",
+  "version": "1.0.0",
+  "private": true,
+  "workspaces": [
+    "frontend",
+    "backend",
+    "packages/*"
+  ],
+  "scripts": {
+    "dev:fe": "npm run dev --workspace=frontend",
+    "build:fe": "npm run build --workspace=frontend",
+    "lint:fe": "npm run lint --workspace=frontend"
+  }
+}
