@@ -1,6 +1,7 @@
 datasource db {
-  provider = "postgresql"
-  url      = env("DATABASE_URL")
+  provider  = "postgresql"
+  url       = env("DATABASE_URL")
+  directUrl = env("DIRECT_URL")
 }
 
 generator client {
@@ -44,12 +45,21 @@ enum TopupStatus {
   REJECTED
 }
 
+enum BannerSlot {
+  HERO_MAIN
+  PROMO_SIDE
+  ANNOUNCEMENT_BAR
+}
+
 model User {
   id           String             @id @default(uuid())
   username     String             @unique
   email        String             @unique
   passwordHash String
   role         Role               @default(MEMBER)
+  isActive     Boolean            @default(true)
+  banReason    String?
+  lastLoginAt  DateTime?
   createdAt    DateTime           @default(now())
   updatedAt    DateTime           @updatedAt
   wallet       Wallet?
@@ -57,14 +67,20 @@ model User {
   topups       TopupTransaction[]
   reviews      Review[]
   tickets      Ticket[]
+  auditLogs    AuditLog[]
+
+  @@index([role, isActive])
+  @@index([createdAt])
 }
 
 model Wallet {
-  id        String   @id @default(uuid())
-  userId    String   @unique
-  balance   Decimal  @default(0) @db.Decimal(12, 2)
-  user      User     @relation(fields: [userId], references: [id], onDelete: Cascade)
-  updatedAt DateTime @updatedAt
+  id         String   @id @default(uuid())
+  userId     String   @unique
+  balance    Decimal  @default(0) @db.Decimal(12, 2)
+  totalTopup Decimal  @default(0) @db.Decimal(12, 2)
+  totalSpent Decimal  @default(0) @db.Decimal(12, 2)
+  user       User     @relation(fields: [userId], references: [id], onDelete: Cascade)
+  updatedAt  DateTime @updatedAt
 }
 
 model Category {
@@ -73,8 +89,30 @@ model Category {
   slug        String    @unique
   description String?
   image       String
+  badge       String?
+  sortOrder   Int       @default(0)
+  isActive    Boolean   @default(true)
   products    Product[]
   createdAt   DateTime  @default(now())
+  updatedAt   DateTime  @updatedAt
+
+  @@index([isActive, sortOrder])
+}
+
+model Banner {
+  id        String     @id @default(uuid())
+  title     String
+  subtitle  String?
+  tag       String?
+  image     String
+  linkUrl   String?
+  slot      BannerSlot @default(HERO_MAIN)
+  sortOrder Int        @default(0)
+  isActive  Boolean    @default(true)
+  createdAt DateTime   @default(now())
+  updatedAt DateTime   @updatedAt
+
+  @@index([slot, isActive, sortOrder])
 }
 
 model Product {
@@ -88,12 +126,18 @@ model Product {
   image            String
   stockMode        StockMode        @default(POOL) // POOL (หลายไอดีต่อ 1 SKU) หรือ UNIQUE_1TO1 (1 SKU = 1 ไอดีคัดเฉพาะ)
   credentialFormat CredentialFormat @default(USER_PASS) // บังคับโครงสร้างข้อมูลตอนแอดมิน Bulk Import
+  isFeatured       Boolean          @default(false)
+  isActive         Boolean          @default(true)
+  sortOrder        Int              @default(0)
   categoryId       String
   category         Category         @relation(fields: [categoryId], references: [id])
   stocks           AccountStock[]
   orders           Order[]
   createdAt        DateTime         @default(now())
   updatedAt        DateTime         @updatedAt
+
+  @@index([categoryId, isActive, sortOrder])
+  @@index([isFeatured, isActive])
 }
 
 model AccountStock {
@@ -105,6 +149,8 @@ model AccountStock {
   credentialHash   String           @unique // HMAC-SHA256 ของ normalized username/key เพื่อบล็อกการลงไอดีซ้ำทั้งระบบ
   maskedIdentity   String // เช่น usr_k4*** (ใช้แสดงในตาราง Admin โดยไม่ต้องถอดรหัส AES-256 ทั้งตาราง)
   credentials      String // ข้อมูลลับเข้ารหัส AES-256-GCM (JSON/Delimited ตาม credentialFormat)
+  farmedMaps       String? // แมพที่ฟาร์ม (รองรับเชื่อมต่อข้อมูลจากระบบ Kaitun Bot)
+  details          String? // รายละเอียดของในไอดี
   batchCode        String? // รหัสล็อตนำเข้า เช่น LOT-20261018-A
   supplierName     String? // ชื่อซัพพลายเออร์/แม่ค้าส่ง เพื่อเช็กย้อนหลังเวลาไอดีมีปัญหา
   costPrice        Decimal?         @db.Decimal(10, 2) // ต้นทุนรับเข้าต่อชิ้นสำหรับคำนวณกำไรสุทธิ
@@ -118,6 +164,7 @@ model AccountStock {
 
   @@index([productId, status, createdAt])
   @@index([batchCode])
+  @@index([status])
 }
 
 model Order {
@@ -128,21 +175,36 @@ model Order {
   productId    String
   product      Product       @relation(fields: [productId], references: [id])
   amount       Decimal       @db.Decimal(10, 2)
+  costAmount   Decimal?      @db.Decimal(10, 2)
   status       OrderStatus   @default(COMPLETED)
+  note         String?
   deliveredKey AccountStock?
   createdAt    DateTime      @default(now())
+  updatedAt    DateTime      @updatedAt
+
+  @@index([userId, createdAt])
+  @@index([status, createdAt])
 }
 
 model TopupTransaction {
-  id            String      @id @default(uuid())
-  userId        String
-  user          User        @relation(fields: [userId], references: [id])
-  amount        Decimal     @db.Decimal(10, 2)
-  paymentMethod String // PROMPTPAY_QR, TRUEMONEY
-  slipUrl       String?
-  slipRef       String?
-  status        TopupStatus @default(PENDING_VERIFY)
-  createdAt     DateTime    @default(now())
+  id              String      @id @default(uuid())
+  transactionCode String?     @unique
+  userId          String
+  user            User        @relation(fields: [userId], references: [id])
+  amount          Decimal     @db.Decimal(10, 2)
+  bonusAmount     Decimal     @default(0) @db.Decimal(10, 2)
+  paymentMethod   String // PROMPTPAY_QR, TRUEMONEY
+  slipUrl         String?
+  slipRef         String?     @unique
+  rejectReason    String?
+  verifiedBy      String?
+  verifiedAt      DateTime?
+  status          TopupStatus @default(PENDING_VERIFY)
+  createdAt       DateTime    @default(now())
+  updatedAt       DateTime    @updatedAt
+
+  @@index([userId, status, createdAt])
+  @@index([status, createdAt])
 }
 
 model Review {
@@ -152,6 +214,8 @@ model Review {
   rating    Int      @default(5)
   comment   String
   createdAt DateTime @default(now())
+
+  @@index([createdAt])
 }
 
 model Ticket {
@@ -163,4 +227,22 @@ model Ticket {
   detail    String
   status    String   @default("OPEN")
   createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([userId, status])
+}
+
+model AuditLog {
+  id         String   @id @default(uuid())
+  actorId    String?
+  actor      User?    @relation(fields: [actorId], references: [id], onDelete: SetNull)
+  action     String // เช่น REVEAL_STOCK_CREDENTIAL, UPDATE_ORDER_STATUS, APPROVE_TOPUP
+  targetType String // เช่น STOCK, ORDER, TOPUP, USER, PRODUCT
+  targetId   String?
+  metadata   Json?
+  ipAddress  String?
+  createdAt  DateTime @default(now())
+
+  @@index([action, createdAt])
+  @@index([actorId, createdAt])
 }
