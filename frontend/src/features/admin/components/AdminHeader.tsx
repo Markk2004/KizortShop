@@ -1,16 +1,11 @@
 "use client";
 
-import { Bell, ShieldCheck } from "lucide-react";
+import { Bell } from "lucide-react";
 
 export function AdminHeader() {
   return (
     <header className="h-16 shrink-0 bg-obsidian-950/90 backdrop-blur-md border-b border-zinc-800 px-6 flex items-center justify-between z-20">
-      <div className="flex items-center gap-3">
-        <span className="px-2.5 py-1 rounded-sm bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] font-semibold flex items-center gap-1.5 font-mono">
-          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
-          <span>KZ // ROOT PRIVILEGE ACTIVE</span>
-        </span>
-      </div>
+      <div />
 
       <div className="flex items-center gap-4">
         <button
