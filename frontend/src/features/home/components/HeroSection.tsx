@@ -2,12 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
-import {
-  ArrowRight,
-  ChevronLeft,
-  ChevronRight,
-  ShoppingCart,
-} from "lucide-react";
+import { ArrowRight, ShoppingCart } from "lucide-react";
 import { siteConfig } from "@/config/site";
 
 interface HeroSlide {
@@ -114,15 +109,7 @@ export function HeroSection() {
     setProgress(0);
   };
 
-  const nextSlide = () => {
-    setCurrent((prev) => (prev + 1) % slides.length);
-    setProgress(0);
-  };
 
-  const prevSlide = () => {
-    setCurrent((prev) => (prev - 1 + slides.length) % slides.length);
-    setProgress(0);
-  };
 
   const slide = slides[current];
 
@@ -220,30 +207,6 @@ export function HeroSection() {
           })}
         </div>
 
-        <div className="flex items-center gap-3 self-end sm:self-auto">
-          <span className="text-xs font-mono font-semibold text-zinc-400 num-tabular">
-            0{current + 1} <span className="text-zinc-700">/</span> 0{slides.length}
-          </span>
-
-          <div className="flex items-center gap-1.5">
-            <button
-              type="button"
-              onClick={prevSlide}
-              aria-label="สไลด์ก่อนหน้า"
-              className="w-8 h-8 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-            >
-              <ChevronLeft className="w-4 h-4" />
-            </button>
-            <button
-              type="button"
-              onClick={nextSlide}
-              aria-label="สไลด์ถัดไป"
-              className="w-8 h-8 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
-            >
-              <ChevronRight className="w-4 h-4" />
-            </button>
-          </div>
-        </div>
       </div>
     </section>
   );
