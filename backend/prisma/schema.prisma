@@ -23,6 +23,19 @@ enum StockStatus {
   AVAILABLE
   RESERVED
   SOLD
+  CLAIMED_DEFECTIVE
+}
+
+enum StockMode {
+  POOL
+  UNIQUE_1TO1
+}
+
+enum CredentialFormat {
+  USER_PASS
+  USER_PASS_2FA
+  COOKIE_TOKEN
+  REDEEM_KEY
 }
 
 enum TopupStatus {
@@ -65,31 +78,46 @@ model Category {
 }
 
 model Product {
-  id            String         @id @default(uuid())
-  code          String         @unique
-  title         String
-  description   String?
-  price         Decimal        @db.Decimal(10, 2)
-  originalPrice Decimal?       @db.Decimal(10, 2)
-  badge         String?
-  image         String
-  categoryId    String
-  category      Category       @relation(fields: [categoryId], references: [id])
-  stocks        AccountStock[]
-  orders        Order[]
-  createdAt     DateTime       @default(now())
-  updatedAt     DateTime       @updatedAt
+  id               String           @id @default(uuid())
+  code             String           @unique // รหัส SKU มาตรฐาน เช่น BF-V4-MAX-01 หรือ UNQ-KITSUNE-89
+  title            String
+  description      String?
+  price            Decimal          @db.Decimal(10, 2)
+  originalPrice    Decimal?         @db.Decimal(10, 2)
+  badge            String?
+  image            String
+  stockMode        StockMode        @default(POOL) // POOL (หลายไอดีต่อ 1 SKU) หรือ UNIQUE_1TO1 (1 SKU = 1 ไอดีคัดเฉพาะ)
+  credentialFormat CredentialFormat @default(USER_PASS) // บังคับโครงสร้างข้อมูลตอนแอดมิน Bulk Import
+  categoryId       String
+  category         Category         @relation(fields: [categoryId], references: [id])
+  stocks           AccountStock[]
+  orders           Order[]
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
 }
 
 model AccountStock {
-  id          String      @id @default(uuid())
-  productId   String
-  product     Product     @relation(fields: [productId], references: [id], onDelete: Cascade)
-  credentials String // เข้ารหัสลับ (AES-256) เช่น username:password หรือ game key
-  status      StockStatus @default(AVAILABLE)
-  orderId     String?     @unique
-  order       Order?      @relation(fields: [orderId], references: [id])
-  createdAt   DateTime    @default(now())
+  id               String           @id @default(uuid())
+  serialCode       String           @unique // รหัสอ้างอิงรายชิ้น เช่น STK-BFV4-261018-0001
+  productId        String
+  product          Product          @relation(fields: [productId], references: [id], onDelete: Cascade)
+  credentialFormat CredentialFormat @default(USER_PASS)
+  credentialHash   String           @unique // HMAC-SHA256 ของ normalized username/key เพื่อบล็อกการลงไอดีซ้ำทั้งระบบ
+  maskedIdentity   String // เช่น usr_k4*** (ใช้แสดงในตาราง Admin โดยไม่ต้องถอดรหัส AES-256 ทั้งตาราง)
+  credentials      String // ข้อมูลลับเข้ารหัส AES-256-GCM (JSON/Delimited ตาม credentialFormat)
+  batchCode        String? // รหัสล็อตนำเข้า เช่น LOT-20261018-A
+  supplierName     String? // ชื่อซัพพลายเออร์/แม่ค้าส่ง เพื่อเช็กย้อนหลังเวลาไอดีมีปัญหา
+  costPrice        Decimal?         @db.Decimal(10, 2) // ต้นทุนรับเข้าต่อชิ้นสำหรับคำนวณกำไรสุทธิ
+  defectReason     String? // บันทึกสาเหตุกรณีสถานะถูกเปลี่ยนเป็น CLAIMED_DEFECTIVE
+  status           StockStatus      @default(AVAILABLE)
+  orderId          String?          @unique
+  order            Order?           @relation(fields: [orderId], references: [id])
+  soldAt           DateTime?
+  createdAt        DateTime         @default(now())
+  updatedAt        DateTime         @updatedAt
+
+  @@index([productId, status, createdAt])
+  @@index([batchCode])
 }
 
 model Order {

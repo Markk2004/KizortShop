@@ -17,24 +17,26 @@ export function SectionHeader({
   actionHref,
 }: SectionHeaderProps) {
   return (
-    <div className="flex items-end justify-between gap-4">
+    <div className="flex items-end justify-between gap-4 pb-3 border-b border-zinc-800/80">
       <div>
         {eyebrow && (
-          <div className="flex items-center gap-2 text-[11px] font-semibold text-blue-400 uppercase tracking-wider mb-0.5">
-            <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-            <span>{eyebrow}</span>
+          <div className="flex items-center gap-2 text-[10px] font-mono font-semibold text-zinc-400 uppercase tracking-widest mb-1">
+            <span className="w-1.5 h-1.5 bg-white" />
+            <span>KZ // {eyebrow}</span>
           </div>
         )}
-        <h2 className="text-base font-bold text-white">{title}</h2>
-        {subtitle && <p className="text-xs text-slate-500 mt-0.5">{subtitle}</p>}
+        <h2 className="text-base sm:text-lg font-bold text-white tracking-tight">
+          {title}
+        </h2>
+        {subtitle && <p className="text-xs text-zinc-500 mt-0.5">{subtitle}</p>}
       </div>
       {actionLabel && actionHref && (
         <Link
           href={actionHref}
-          className="text-xs text-slate-400 hover:text-white font-medium flex items-center gap-1 transition-colors shrink-0"
+          className="text-xs font-mono text-zinc-400 hover:text-white font-medium flex items-center gap-1.5 transition-colors shrink-0"
         >
           <span>{actionLabel}</span>
-          <ArrowRight className="w-3 h-3" />
+          <ArrowRight className="w-3.5 h-3.5" />
         </Link>
       )}
     </div>

@@ -2,43 +2,58 @@
 
 import Link from "next/link";
 import { Bell, Search, ShieldAlert } from "lucide-react";
+import { siteConfig } from "@/config/site";
 
 export function TopHeader() {
   return (
-    <header className="sticky top-0 h-16 shrink-0 bg-obsidian-950/80 backdrop-blur-xl border-b border-white/[0.07] px-6 flex items-center justify-between gap-6 z-30">
-      {/* Search Bar */}
-      <div className="flex items-center gap-4 flex-1 max-w-xl">
+    <header className="sticky top-0 h-16 shrink-0 bg-obsidian-950/90 backdrop-blur-md border-b border-zinc-800/80 px-6 flex items-center justify-between gap-6 z-30">
+      {/* Brand Wordmark + Search Bar */}
+      <div className="flex items-center gap-4 flex-1 max-w-2xl">
+        <Link
+          href="/"
+          className="hidden md:flex items-center gap-2.5 pr-4 border-r border-zinc-800 shrink-0"
+        >
+          <img
+            src={siteConfig.logo}
+            alt="KZ Logo"
+            className="w-7 h-7 rounded-sm object-cover border border-zinc-700"
+          />
+          <span className="text-sm font-bold tracking-tight text-white font-display">
+            KaiZort
+          </span>
+        </Link>
+
         <div className="relative w-full">
-          <Search className="w-4 h-4 text-slate-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
+          <Search className="w-4 h-4 text-zinc-500 absolute left-3.5 top-1/2 -translate-y-1/2 pointer-events-none" />
           <input
             type="search"
             placeholder="ค้นหารหัสไก่ตัน, ผลตื่น, ดาบคู่... (Ctrl + K)"
-            className="w-full bg-obsidian-900 border border-white/[0.08] focus:border-white/20 rounded-lg pl-10 pr-20 py-2 text-xs text-white placeholder-slate-500 focus:outline-none transition-all"
+            className="w-full bg-obsidian-900 border border-zinc-800 focus:border-zinc-500 rounded-md pl-10 pr-20 py-2 text-xs text-white placeholder-zinc-500 focus:outline-none transition-colors"
           />
-          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-white/[0.06] border border-white/[0.08] px-1.5 py-0.5 rounded text-[10px] text-slate-400 font-mono">
+          <kbd className="absolute right-2.5 top-1/2 -translate-y-1/2 bg-zinc-950 border border-zinc-800 px-1.5 py-0.5 rounded-sm text-[10px] text-zinc-400 font-mono">
             Ctrl K
           </kbd>
         </div>
       </div>
 
       {/* Right Actions */}
-      <div className="flex items-center gap-3">
+      <div className="flex items-center gap-2.5">
         <Link
           href="/admin/dashboard"
-          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-xs font-medium text-slate-300 hover:text-white bg-white/[0.05] hover:bg-white/[0.1] border border-white/10 transition-colors"
-          title="เข้าสู่ระบบจัดการหลังบ้าน"
+          className="hidden sm:flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium text-zinc-200 hover:text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 transition-colors"
+          title="เข้าสู่ระบบจัดการหลังบ้าน KaiZort"
         >
-          <ShieldAlert className="w-3.5 h-3.5 text-red-400" />
+          <ShieldAlert className="w-3.5 h-3.5 text-zinc-400" />
           <span>ระบบจัดการร้านค้า</span>
         </Link>
 
         <button
           type="button"
           aria-label="การแจ้งเตือน"
-          className="relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors cursor-pointer"
+          className="relative p-2 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 border border-transparent hover:border-zinc-800 transition-colors cursor-pointer"
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-blue-500" />
+          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-white" />
         </button>
       </div>
     </header>

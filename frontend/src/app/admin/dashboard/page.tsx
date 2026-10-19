@@ -1,451 +1,708 @@
+"use client";
+
+import { useState, useEffect } from "react";
 import Link from "next/link";
 import {
+  AlertTriangle,
   ArrowRight,
   ArrowUpRight,
   Boxes,
   CheckCircle2,
+  ChevronRight,
+  Clock,
   CreditCard,
+  Eye,
   Package,
   ShieldCheck,
-  Users,
-  Zap,
+  TrendingUp,
 } from "lucide-react";
 import { formatBaht } from "@/lib/format";
+import {
+  OrderDetailDrawer,
+  type OrderDrawerData,
+} from "@/features/admin/components/OrderDetailDrawer";
+import {
+  AdminSmartFilterBar,
+  verifySearchInput,
+  type SearchFieldMode,
+} from "@/features/admin/components/AdminSmartFilterBar";
+import {
+  fetchDashboardMetrics,
+  type DashboardMetrics,
+} from "@/features/admin/services/admin-api";
 
-interface RecentOrderRow {
-  id: string;
-  orderNumber: string;
-  buyer: string;
-  productTitle: string;
-  amount: number;
-  status: "COMPLETED" | "PENDING";
-  deliveryTime: string;
-  timeAgo: string;
+type TimeRange = "TODAY" | "7D" | "MONTH" | "CUSTOM";
+
+interface DailyBar {
+  day: string;
+  label: string;
+  val: number;
+  valLabel: string;
+  heightPercent: number;
+  isToday?: boolean;
 }
 
-const recentOrders: RecentOrderRow[] = [
+const weeklyBars: DailyBar[] = [
+  { day: "จ.", label: "วันจันทร์", val: 36200, valLabel: "36.2K", heightPercent: 72 },
+  { day: "อ.", label: "วันอังคาร", val: 41500, valLabel: "41.5K", heightPercent: 83 },
+  { day: "พ.", label: "วันพุธ", val: 38900, valLabel: "38.9K", heightPercent: 78 },
+  { day: "พฤ.", label: "วันพฤหัสบดี", val: 34100, valLabel: "34.1K", heightPercent: 68 },
+  { day: "ศ.", label: "วันศุกร์", val: 44730, valLabel: "44.7K", heightPercent: 89 },
+  { day: "ส.", label: "วันเสาร์", val: 40820, valLabel: "40.8K", heightPercent: 81 },
+  { day: "อา.", label: "วันอาทิตย์", val: 48250, valLabel: "48.2K", heightPercent: 96, isToday: true },
+];
+
+const bestSellers = [
+  { code: "BF-V4", name: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น", units: 36, rev: 12564, width: "100%" },
+  { code: "BF-CDK", name: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณ", units: 21, rev: 10290, width: "82%" },
+  { code: "AD-MYT", name: "Anime Defenders Unit Mythic ลิมิเต็ด อัปเกรดดาวเต็ม", units: 33, rev: 6237, width: "50%" },
+  { code: "BF-RND", name: "กล่องสุ่มไก่ตัน 6 หมัด เลเวลตัน 2550 ลุ้นดาบคู่โอเด้ง", units: 52, rev: 2028, width: "16%" },
+];
+
+const initialOrders: OrderDrawerData[] = [
   {
     id: "ord_101",
-    orderNumber: "ORD-99412",
+    orderNumber: "KZ-99412",
     buyer: "player_99",
+    buyerEmail: "player99@roblox.in.th",
     productTitle: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น",
+    categoryCode: "BF-V4",
+    deliveredCode: "STK-BFV4-261018-0001",
+    decryptedCredential: "bf_cyborg99:P@ssword2026",
     amount: 349,
     status: "COMPLETED",
-    deliveryTime: "0.8s",
+    sla: "0.8 วิ",
     timeAgo: "2 นาทีที่แล้ว",
+    warrantyExpiresIn: "เหลือ 23 ชม. 58 นาที",
   },
   {
     id: "ord_102",
-    orderNumber: "ORD-99411",
+    orderNumber: "KZ-99411",
     buyer: "zoro_fan",
+    buyerEmail: "zoro@grandline.io",
     productTitle: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณ",
+    categoryCode: "BF-CDK",
+    deliveredCode: "STK-BFCDK-261018-0004",
+    decryptedCredential: "cdk_hunter02:DualSword$22",
     amount: 490,
     status: "COMPLETED",
-    deliveryTime: "0.7s",
+    sla: "0.7 วิ",
     timeAgo: "14 นาทีที่แล้ว",
+    warrantyExpiresIn: "เหลือ 23 ชม. 46 นาที",
   },
   {
     id: "ord_103",
-    orderNumber: "ORD-99410",
+    orderNumber: "KZ-99410",
     buyer: "shadow_gamer",
+    buyerEmail: "shadow@kaizort.gg",
     productTitle: "Anime Defenders Unit Mythic ลิมิเต็ด อัปเกรดดาวเต็ม",
+    categoryCode: "AD-MYT",
+    deliveredCode: "STK-UNQAD-261017-0010",
+    decryptedCredential: "ad_mythic_star:DefenderPro#1:2FA-9001",
     amount: 189,
     status: "COMPLETED",
-    deliveryTime: "0.9s",
+    sla: "0.9 วิ",
     timeAgo: "28 นาทีที่แล้ว",
+    warrantyExpiresIn: "เหลือ 23 ชม. 32 นาที",
   },
   {
     id: "ord_104",
-    orderNumber: "ORD-99409",
-    buyer: "kaitanking",
+    orderNumber: "KZ-99409",
+    buyer: "kaizort_vip",
+    buyerEmail: "vip@kaizort.store",
     productTitle: "ไอดีสุ่มไก่ตัน 6 หมัด เลเวลตัน 2550 การันตีดาบโซโล",
+    categoryCode: "BF-RND",
+    deliveredCode: "STK-BFRND-261017-0013",
+    decryptedCredential: "rnd_box_093:RandomLuck@3",
     amount: 39,
     status: "COMPLETED",
-    deliveryTime: "0.6s",
+    sla: "0.6 วิ",
     timeAgo: "42 นาทีที่แล้ว",
-  },
-  {
-    id: "ord_105",
-    orderNumber: "ORD-99408",
-    buyer: "bloxfruits_king",
-    productTitle: "ไก่ตัน Blox Fruits หมัด Godhuman + สมอ Shark Anchor",
-    amount: 99,
-    status: "COMPLETED",
-    deliveryTime: "0.8s",
-    timeAgo: "1 ชม. ที่แล้ว",
+    warrantyExpiresIn: "เหลือ 23 ชม. 18 นาที",
   },
 ];
 
-const weeklySparkline = [
-  { day: "จันทร์", value: 34200, height: "55%" },
-  { day: "อังคาร", value: 38900, height: "65%" },
-  { day: "พุธ", value: 41200, height: "72%" },
-  { day: "พฤหัส", value: 36500, height: "60%" },
-  { day: "ศุกร์", value: 52400, height: "92%" },
-  { day: "เสาร์", value: 58000, height: "100%" },
-  { day: "อาทิตย์", value: 48250, height: "85%", isToday: true },
+const telemetrySystems = [
+  { name: "บอท Discord ส่งรหัส DM", note: "เชื่อมต่อแล้ว 0.8 วิ", status: "OK" },
+  { name: "รับชำระเงิน PromptPay QR", note: "ปกติ (SlipOK API)", status: "OK" },
+  { name: "ระบบส่งมอบรหัสอัตโนมัติ (FIFO)", note: "ปกติ 99.8% อัตราสำเร็จ", status: "OK" },
+  { name: "คลังรหัสสต็อกเข้ารหัส AES-256-GCM", note: "ปกติ (SHA-256 Lock)", status: "OK" },
 ];
 
 export default function AdminDashboardPage() {
+  const [orders, setOrders] = useState<OrderDrawerData[]>(initialOrders);
+  const [timeRange, setTimeRange] = useState<TimeRange>("TODAY");
+  const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
+  const [selectedOrder, setSelectedOrder] = useState<OrderDrawerData | null>(null);
+  const [notification, setNotification] = useState<string | null>(null);
+  const [metrics, setMetrics] = useState<DashboardMetrics>({
+    dailyRevenue: 48250,
+    monthlyRevenue: 1245000,
+    totalOrdersToday: 142,
+    pendingSlips: 3,
+    activeMembers: 1284,
+    outOfStockCount: 4,
+  });
+
+  useEffect(() => {
+    let isMounted = true;
+    fetchDashboardMetrics().then((res) => {
+      if (isMounted && res) {
+        setMetrics(res);
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, []);
+
+  const showNotification = (msg: string) => {
+    setNotification(msg);
+    setTimeout(() => setNotification(null), 3500);
+  };
+
+  const verification = verifySearchInput(searchQuery, searchMode);
+
+  const filteredOrders = orders.filter((o) => {
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    if (!verification.isValid) return false;
+
+    if (searchMode === "ORDER_ID") {
+      return o.orderNumber.toLowerCase().includes(q) || o.id.toLowerCase().includes(q);
+    }
+    if (searchMode === "SKU_CODE") {
+      return (
+        o.categoryCode.toLowerCase().includes(q) ||
+        o.deliveredCode.toLowerCase().includes(q)
+      );
+    }
+    if (searchMode === "USERNAME") {
+      return o.buyer.toLowerCase().includes(q);
+    }
+    if (searchMode === "NUMBER_PRICE") {
+      return String(o.amount).includes(q);
+    }
+
+    return (
+      o.orderNumber.toLowerCase().includes(q) ||
+      o.buyer.toLowerCase().includes(q) ||
+      o.productTitle.toLowerCase().includes(q) ||
+      o.categoryCode.toLowerCase().includes(q) ||
+      String(o.amount).includes(q)
+    );
+  });
+
+  const handleToggleRefund = (target: OrderDrawerData) => {
+    const nextStatus = target.status === "REFUNDED" ? "COMPLETED" : "REFUNDED";
+    setOrders((prev) =>
+      prev.map((o) => (o.id === target.id ? { ...o, status: nextStatus } : o)),
+    );
+    setSelectedOrder((prev) =>
+      prev && prev.id === target.id ? { ...prev, status: nextStatus } : prev,
+    );
+    showNotification(`อัปเดตออเดอร์ #${target.orderNumber} เป็น ${nextStatus}`);
+  };
+
+  const handleReplaceStock = (target: OrderDrawerData) => {
+    const newSerial = `STK-${target.categoryCode.replace("-", "")}-CLAIM-${Math.floor(
+      100 + Math.random() * 900,
+    )}`;
+    setOrders((prev) =>
+      prev.map((o) =>
+        o.id === target.id ? { ...o, deliveredCode: newSerial } : o,
+      ),
+    );
+    setSelectedOrder((prev) =>
+      prev && prev.id === target.id
+        ? { ...prev, deliveredCode: newSerial }
+        : prev,
+    );
+    showNotification(
+      `สลับรหัสเคลมใหม่ (${newSerial}) ให้ออเดอร์ #${target.orderNumber} เรียบร้อย`,
+    );
+  };
+
   return (
     <div className="space-y-6">
-      {/* Header & Quick Action Pills */}
-      <div className="flex flex-col md:flex-row md:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
-        <div>
-          <div className="flex items-center gap-2 mb-1">
-            <span className="w-2 h-2 rounded-full bg-blue-400" />
-            <span className="text-[11px] font-mono font-semibold tracking-wider text-blue-400 uppercase">
-              ADMIN CONTROL CENTER
-            </span>
-          </div>
-          <h1 className="text-xl sm:text-2xl font-bold text-white tracking-tight">
-            แดชบอร์ดภาพรวมระบบ
+      {/* SMART FILTER & INPUT VERIFIER BAR */}
+      <AdminSmartFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={setSearchQuery}
+        searchMode={searchMode}
+        onSearchModeChange={setSearchMode}
+        placeholder="ค้นหาออเดอร์ล่าสุด, ผู้ซื้อ, รหัส SKU หรือราคา..."
+        totalMatched={filteredOrders.length}
+        totalAll={orders.length}
+      >
+        <div className="flex items-center gap-1 p-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono">
+          {(
+            [
+              { id: "TODAY", label: "วันนี้" },
+              { id: "7D", label: "7 วัน" },
+              { id: "MONTH", label: "เดือนนี้" },
+              { id: "CUSTOM", label: "กำหนดเอง" },
+            ] as const
+          ).map((t) => (
+            <button
+              key={t.id}
+              type="button"
+              onClick={() => {
+                setTimeRange(t.id);
+                showNotification(`สลับช่วงเวลาแสดงผล: ${t.label}`);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                timeRange === t.id
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
+      </AdminSmartFilterBar>
+
+      {/* Floating Notification */}
+      {notification && (
+        <div className="p-3.5 rounded-lg bg-zinc-900 border border-zinc-700 text-white text-sm font-medium flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
+          <span>{notification}</span>
+        </div>
+      )}
+
+      {/* GREETING & PRIMARY ACTIONS */}
+      <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5 border-b border-zinc-800">
+        <div className="space-y-1">
+          <span className="text-xs font-mono uppercase tracking-wider text-zinc-400">
+            วันอาทิตย์ที่ 18 ตุลาคม 2569 // 23:45 น.
+          </span>
+          <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
+            สวัสดีตอนค่ำ คุณไค (KaiZort Operations)
           </h1>
-          <p className="text-xs text-slate-400 mt-0.5">
-            สรุปข้อมูลสถิติยอดขาย ธุรกรรมการเงิน และสถานะสต็อกสินค้าแบบเรียลไทม์
+          <p className="text-sm text-zinc-300">
+            วันนี้ร้านขายได้ดีกว่าเมื่อวาน และมี{" "}
+            <strong className="text-emerald-400 font-mono">8 งาน</strong> รอดำเนินการในระบบ
           </p>
         </div>
 
-        {/* Quick Action Pills Toolbar */}
-        <div className="flex flex-wrap items-center gap-2 self-start md:self-auto">
+        <div className="flex flex-wrap items-center gap-2.5">
           <Link
             href="/admin/stocks"
-            className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2.5 rounded-lg text-sm font-semibold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
           >
-            <Boxes className="w-3.5 h-3.5 text-blue-400" />
-            <span>+ เติมสต็อกรหัส</span>
+            <Boxes className="w-4 h-4" />
+            <span>เติมสต็อกรหัสเกม</span>
           </Link>
 
           <Link
             href="/admin/products"
-            className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
+            className="px-4 py-2.5 rounded-lg text-sm font-medium text-zinc-200 bg-obsidian-900 hover:bg-zinc-800 border border-zinc-700 transition-colors flex items-center gap-2 cursor-pointer"
           >
-            <Package className="w-3.5 h-3.5 text-emerald-400" />
-            <span>+ เพิ่มสินค้า</span>
-          </Link>
-
-          <Link
-            href="/admin/topups"
-            className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
-          >
-            <CreditCard className="w-3.5 h-3.5 text-amber-400" />
-            <span>ตรวจสลิป</span>
-            <span className="px-1.5 py-0.2 rounded text-[10px] font-bold bg-amber-500/20 text-amber-300 ml-0.5">
-              3
-            </span>
-          </Link>
-
-          <Link
-            href="/admin/users"
-            className="px-3.5 py-1.5 rounded-xl text-xs font-medium text-slate-200 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-colors flex items-center gap-1.5 cursor-pointer"
-          >
-            <Users className="w-3.5 h-3.5 text-slate-400" />
-            <span>จัดการสมาชิก</span>
+            <Package className="w-4 h-4 text-zinc-400" />
+            <span>เพิ่มสินค้าใหม่</span>
           </Link>
         </div>
-      </div>
+      </section>
 
-      {/* Main Bento Grid: 8 Cols Left (Stats + Feed) / 4 Cols Right (Actions + Pulse) */}
-      <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
-        {/* LEFT COLUMN: 8 COLS */}
-        <div className="lg:col-span-8 space-y-6">
-          {/* Bento Block 1: Hero Revenue & Performance Card */}
-          <section className="luxury-card rounded-2xl p-6 sm:p-7 border border-white/10 space-y-6">
-            <div className="flex flex-col sm:flex-row sm:items-start justify-between gap-4">
-              <div>
-                <span className="text-xs font-medium text-slate-400 block mb-1">
-                  ยอดขายรวมประจำวันนี้ (Today&apos;s Revenue)
-                </span>
-                <div className="flex items-baseline gap-3">
-                  <span className="text-3xl sm:text-4xl font-bold text-white tracking-tight num-tabular">
-                    {formatBaht(48250)}
-                  </span>
-                  <div className="flex items-center gap-1 px-2 py-0.5 rounded text-xs font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
-                    <ArrowUpRight className="w-3.5 h-3.5" />
-                    <span>+18.2%</span>
-                  </div>
-                </div>
-                <span className="text-[11px] text-slate-500 mt-1 block">
-                  เทียบกับช่วงเวลาเดียวกันเมื่อวาน (฿40,820)
+      {/* HERO: REVENUE 7-DAY BAR CHART + TODO ACTION LIST */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-stretch">
+        {/* REVENUE 7-DAY BAR CHART (7 Cols) */}
+        <div className="lg:col-span-7 rounded-xl border border-zinc-800 bg-obsidian-900 p-6 flex flex-col justify-between gap-6">
+          <div className="flex flex-wrap items-start justify-between gap-4">
+            <div className="space-y-1">
+              <span className="text-xs font-mono uppercase tracking-wider text-zinc-400 block">
+                01 // TODAY REVENUE
+              </span>
+              <div className="flex items-baseline gap-1 font-mono">
+                <span className="text-3xl sm:text-4xl font-bold text-white tracking-tight num-tabular">
+                  {formatBaht(metrics.dailyRevenue)}
                 </span>
               </div>
-
-              {/* Weekly Sparkline Rhythm */}
-              <div className="space-y-2">
-                <span className="text-[11px] text-slate-500 block text-right font-medium">
-                  แนวโน้ม 7 วันย้อนหลัง
-                </span>
-                <div className="flex items-end gap-2 h-14 pt-1">
-                  {weeklySparkline.map((item) => (
-                    <div
-                      key={item.day}
-                      title={`${item.day}: ${formatBaht(item.value)}`}
-                      className="flex flex-col items-center gap-1.5 group cursor-default"
-                    >
-                      <div className="w-4 sm:w-5 bg-white/[0.06] rounded-t-sm h-12 flex items-end overflow-hidden">
-                        <div
-                          style={{ height: item.height }}
-                          className={`w-full transition-all rounded-t-sm ${
-                            item.isToday
-                              ? "bg-blue-500 group-hover:bg-blue-400"
-                              : "bg-white/20 group-hover:bg-white/40"
-                          }`}
-                        />
-                      </div>
-                      <span className="text-[9px] font-mono text-slate-500 uppercase">
-                        {item.day.slice(0, 1)}
-                      </span>
-                    </div>
-                  ))}
-                </div>
-              </div>
+              <span className="text-xs font-mono text-zinc-400 block">
+                เมื่อวาน ฿40,820.00
+              </span>
             </div>
 
-            {/* Sub Metrics Row - Clean Dividers, No Nested Heavy Boxes */}
-            <div className="pt-5 border-t border-white/[0.06] grid grid-cols-2 sm:grid-cols-4 gap-4">
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium block">
-                  ยอดรวมสัปดาห์นี้
-                </span>
-                <p className="text-base sm:text-lg font-bold text-white num-tabular mt-0.5">
-                  {formatBaht(284500)}
-                </p>
-              </div>
+            <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+              <ArrowUpRight className="w-3.5 h-3.5" />
+              <span>+18.2% จากเมื่อวาน</span>
+            </span>
+          </div>
 
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium block">
-                  คำสั่งซื้อวันนี้
-                </span>
-                <p className="text-base sm:text-lg font-bold text-white num-tabular mt-0.5">
-                  142 รายการ
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium block">
-                  ส่งมอบอัตโนมัติสำเร็จ
-                </span>
-                <p className="text-base sm:text-lg font-bold text-emerald-400 num-tabular mt-0.5">
-                  99.8%
-                </p>
-              </div>
-
-              <div>
-                <span className="text-[11px] text-slate-500 font-medium block">
-                  ความเร็วส่งมอบเฉลี่ย
-                </span>
-                <p className="text-base sm:text-lg font-bold text-slate-200 num-tabular mt-0.5">
-                  0.8 วินาที
-                </p>
-              </div>
-            </div>
-          </section>
-
-          {/* Bento Block 2: Live Recent Orders Stream */}
-          <section className="luxury-card rounded-2xl p-6 border border-white/10 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-              <div className="flex items-center gap-2">
-                <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                <h2 className="text-sm font-bold text-white tracking-wide">
-                  ฟีดคำสั่งซื้อล่าสุด (Live Orders Stream)
-                </h2>
-              </div>
-
-              <Link
-                href="/admin/orders"
-                className="text-xs text-slate-400 hover:text-white font-medium flex items-center gap-1 transition-colors"
-              >
-                <span>ดูประวัติทั้งหมด</span>
-                <ArrowRight className="w-3.5 h-3.5" />
-              </Link>
+          {/* 7 Days Bar Chart */}
+          <div className="space-y-3 pt-2">
+            <div className="flex items-center justify-between">
+              <span className="text-sm font-medium text-zinc-200">
+                สถิติยอดขาย 7 วันล่าสุด
+              </span>
+              <span className="text-xs font-mono text-zinc-400">
+                MAX: ฿50,000 / DAY
+              </span>
             </div>
 
-            <div className="divide-y divide-white/[0.04]">
-              {recentOrders.map((order) => (
+            <div className="h-44 flex items-end gap-2 sm:gap-3 pb-2 border-b border-zinc-800">
+              {weeklyBars.map((b) => (
                 <div
-                  key={order.id}
-                  className="py-3 flex flex-col sm:flex-row sm:items-center justify-between gap-2.5 hover:bg-white/[0.02] px-2 -mx-2 rounded-xl transition-colors"
+                  key={b.day}
+                  title={`${b.label}: ${formatBaht(b.val)}`}
+                  className="flex-1 flex flex-col items-center justify-end gap-2 h-full group"
                 >
-                  <div className="flex items-start gap-3 min-w-0">
-                    <div className="w-8 h-8 rounded-lg bg-white/[0.05] border border-white/10 flex items-center justify-center text-xs font-mono font-semibold text-slate-300 shrink-0 mt-0.5 sm:mt-0">
-                      ID
-                    </div>
-                    <div className="min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs font-bold text-white truncate max-w-xs sm:max-w-md">
-                          {order.productTitle}
-                        </span>
-                        <span className="text-[10px] font-mono text-slate-500 hidden sm:inline">
-                          ({order.orderNumber})
-                        </span>
-                      </div>
-                      <div className="flex items-center gap-2 text-[11px] text-slate-400 mt-0.5">
-                        <span className="font-mono text-slate-300">{order.buyer}</span>
-                        <span className="text-slate-700">•</span>
-                        <span className="text-slate-500">{order.timeAgo}</span>
-                      </div>
-                    </div>
-                  </div>
-
-                  <div className="flex items-center justify-between sm:justify-end gap-3 shrink-0 pl-11 sm:pl-0">
-                    <span className="text-xs font-bold text-white num-tabular">
-                      {formatBaht(order.amount)}
-                    </span>
-                    <span className="inline-flex items-center gap-1 text-[10px] font-medium text-emerald-400 bg-emerald-500/10 px-2 py-0.5 rounded border border-emerald-500/20">
-                      <CheckCircle2 className="w-3 h-3 text-emerald-400" />
-                      <span>{order.deliveryTime}</span>
-                    </span>
+                  <span
+                    className={`text-xs font-mono num-tabular transition-colors ${
+                      b.isToday
+                        ? "text-white font-bold"
+                        : "text-zinc-400 group-hover:text-zinc-200"
+                    }`}
+                  >
+                    {b.valLabel}
+                  </span>
+                  <div className="w-full bg-zinc-950 border border-zinc-800 rounded-t-sm h-full flex items-end p-0.5">
+                    <div
+                      style={{ height: `${b.heightPercent}%` }}
+                      className={`w-full rounded-t-xs transition-all ${
+                        b.isToday
+                          ? "bg-white"
+                          : "bg-zinc-700 group-hover:bg-zinc-500"
+                      }`}
+                    />
                   </div>
                 </div>
               ))}
             </div>
-          </section>
+
+            <div className="flex gap-2 sm:gap-3 text-center">
+              {weeklyBars.map((b) => (
+                <span
+                  key={b.day}
+                  className={`flex-1 text-xs font-mono ${
+                    b.isToday ? "text-white font-bold" : "text-zinc-400"
+                  }`}
+                >
+                  {b.day}
+                </span>
+              ))}
+            </div>
+          </div>
         </div>
 
-        {/* RIGHT COLUMN: 4 COLS */}
-        <div className="lg:col-span-4 space-y-6">
-          {/* Bento Block 3: Action Required Items (งานด่วนที่ต้องทำ) */}
-          <section className="luxury-card rounded-2xl p-5 sm:p-6 border border-white/10 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-              <h2 className="text-sm font-bold text-white tracking-wide">
-                งานที่ต้องดำเนินการ (Action Items)
+        {/* TODO ACTION QUEUE (5 Cols) */}
+        <div className="lg:col-span-5 rounded-xl border border-zinc-800 bg-obsidian-900 p-6 flex flex-col justify-between gap-4">
+          <div className="flex items-center justify-between pb-3 border-b border-zinc-800">
+            <div className="flex items-center gap-2">
+              <Clock className="w-4 h-4 text-amber-400" />
+              <h2 className="text-base font-bold text-white tracking-wide">
+                ต้องทำตอนนี้ (Priority Queue)
               </h2>
-              <span className="text-[10px] font-bold px-2 py-0.5 rounded bg-amber-500/10 text-amber-400 border border-amber-500/20">
-                7 รายการ
+            </div>
+            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
+              8 รอดำเนินการ
+            </span>
+          </div>
+
+          <div className="space-y-3">
+            {/* Task 1 */}
+            <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
+                  <CreditCard className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-white block">
+                    สลิปโอนเงินรอตรวจ {metrics.pendingSlips} รายการ
+                  </span>
+                  <span className="text-xs font-mono text-zinc-400 block">
+                    รวม ฿1,150.00 · ผ่าน PromptPay
+                  </span>
+                </div>
+              </div>
+
+              <Link
+                href="/admin/topups"
+                className="px-3 py-1.5 rounded-md text-xs font-semibold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <span>ตรวจสลิป</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {/* Task 2 */}
+            <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                  <AlertTriangle className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-white block">
+                    สินค้าใกล้หมดสต็อก {metrics.outOfStockCount} หมวด
+                  </span>
+                  <span className="text-xs font-mono text-zinc-400 block">
+                    BF-CDK, ROBUX-AUTO และอีก 2 รายการ
+                  </span>
+                </div>
+              </div>
+
+              <Link
+                href="/admin/stocks"
+                className="px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <span>เติมสต็อก</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+
+            {/* Task 3 */}
+            <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
+              <div className="flex items-center gap-3">
+                <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
+                  <ShieldCheck className="w-5 h-5" />
+                </div>
+                <div>
+                  <span className="text-sm font-bold text-white block">
+                    เคลมสินค้าในประกัน 1 รายการ
+                  </span>
+                  <span className="text-xs font-mono text-zinc-400 block">
+                    ต้องตอบภายใน 24 ชม. · เหลือ 21 ชม.
+                  </span>
+                </div>
+              </div>
+
+              <Link
+                href="/admin/stocks"
+                className="px-3 py-1.5 rounded-md text-xs font-medium text-zinc-200 bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+              >
+                <span>ดูเคลม</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </Link>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* KPI ROW: 3 Columns */}
+      <section aria-label="ตัวเลขสำคัญ" className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+        <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-2">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-widest block">
+            01 // 7-DAY REVENUE
+          </span>
+          <p className="text-2xl font-bold font-mono text-white num-tabular">
+            ฿284,500.00
+          </p>
+          <div className="h-2 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
+            <div className="h-full bg-white rounded-full" style={{ width: "94.8%" }} />
+          </div>
+          <span className="text-xs text-zinc-400 block font-mono">
+            ทำได้ 94.8% ของเป้า ฿300,000
+          </span>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-2">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-widest block">
+            02 // ORDERS TODAY
+          </span>
+          <p className="text-2xl font-bold font-mono text-white num-tabular">
+            142 <span className="text-sm font-normal text-zinc-400 font-sans">รายการ</span>
+          </p>
+          <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 pt-1">
+            <span className="w-2 h-2 rounded-full bg-emerald-400" />
+            <span>ส่งรหัสอัตโนมัติสำเร็จ 99.8%</span>
+          </div>
+        </div>
+
+        <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-2">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-widest block">
+            03 // VAULT INVENTORY
+          </span>
+          <p className="text-2xl font-bold font-mono text-white num-tabular">
+            1,284 <span className="text-sm font-normal text-zinc-400 font-sans">ไอดีพร้อมขาย</span>
+          </p>
+          <Link
+            href="/admin/stocks"
+            className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
+          >
+            <span>ใกล้หมด 4 รายการ · ดูรายการสต็อก</span>
+          </Link>
+        </div>
+      </section>
+
+      {/* LEDGER + SIDEBAR COLUMN */}
+      <section className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
+        {/* LEFT 8 COLS: Recent Orders Ledger with Clickable Drawer */}
+        <div className="lg:col-span-8 rounded-xl border border-zinc-800 bg-obsidian-900 overflow-hidden">
+          <div className="px-6 py-4 border-b border-zinc-800 flex items-center justify-between">
+            <div className="flex items-center gap-2">
+              <span className="w-2 h-2 bg-emerald-400" />
+              <h2 className="text-base font-bold text-white tracking-wide">
+                คำสั่งซื้อล่าสุด (คลิกที่รายการหรือปุ่ม &ldquo;ดู&rdquo; เพื่อเปิด Drawer)
+              </h2>
+            </div>
+            <Link
+              href="/admin/orders"
+              className="text-xs font-mono text-zinc-300 hover:text-white flex items-center gap-1 transition-colors"
+            >
+              <span>ดูทั้งหมด</span>
+              <ArrowRight className="w-3.5 h-3.5" />
+            </Link>
+          </div>
+
+          <div className="overflow-x-auto">
+            <div className="min-w-[680px] divide-y divide-zinc-800/70">
+              {filteredOrders.length === 0 ? (
+                <div className="p-8 text-center text-sm text-zinc-400">
+                  ไม่พบคำสั่งซื้อที่ตรงกับเงื่อนไขการค้นหา
+                </div>
+              ) : (
+                filteredOrders.map((r) => (
+                  <div
+                    key={r.id}
+                    onClick={() => setSelectedOrder(r)}
+                    className="px-6 py-4 flex items-center gap-4 hover:bg-zinc-800/35 transition-colors cursor-pointer"
+                  >
+                    {/* Item Details */}
+                    <div className="flex-1 min-w-0 space-y-1.5">
+                      <span className="text-sm font-semibold text-white block truncate">
+                        {r.productTitle}
+                      </span>
+                      <div className="flex flex-wrap items-center gap-2.5 text-xs font-mono text-zinc-400">
+                        <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 font-bold">
+                          {r.categoryCode}
+                        </span>
+                        <span className="text-white font-bold">#{r.orderNumber}</span>
+                        <span>@{r.buyer}</span>
+                        <span>· {r.timeAgo}</span>
+                      </div>
+                    </div>
+
+                    {/* Amount */}
+                    <div className="w-28 text-right font-mono font-bold text-base text-white num-tabular">
+                      {formatBaht(r.amount)}
+                    </div>
+
+                    {/* SLA Badge */}
+                    <div className="w-28 text-center">
+                      {r.status === "REFUNDED" ? (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-red-500/15 text-red-400 border border-red-500/30 text-xs font-mono font-semibold">
+                          REFUNDED
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 text-xs font-mono font-semibold">
+                          <CheckCircle2 className="w-3.5 h-3.5" />
+                          <span>ส่งแล้ว {r.sla}</span>
+                        </span>
+                      )}
+                    </div>
+
+                    {/* Action Buttons */}
+                    <div
+                      className="w-36 flex items-center justify-end gap-2"
+                      onClick={(e) => e.stopPropagation()}
+                    >
+                      <button
+                        type="button"
+                        onClick={() =>
+                          showNotification(`ส่งรหัสของ ${r.orderNumber} ซ้ำเข้า DM สำเร็จ`)
+                        }
+                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-200 bg-zinc-950 hover:bg-zinc-800 border border-zinc-700 transition-colors cursor-pointer"
+                      >
+                        ส่งซ้ำ
+                      </button>
+                      <button
+                        type="button"
+                        onClick={() => setSelectedOrder(r)}
+                        className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-1 cursor-pointer"
+                      >
+                        <Eye className="w-3.5 h-3.5" />
+                        <span>ดู</span>
+                      </button>
+                    </div>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        </div>
+
+        {/* RIGHT 4 COLS: Top Products + Telemetry */}
+        <div className="lg:col-span-4 space-y-6">
+          <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-4">
+            <div className="space-y-0.5 pb-2 border-b border-zinc-800">
+              <div className="flex items-center gap-2">
+                <TrendingUp className="w-4 h-4 text-emerald-400" />
+                <h2 className="text-base font-bold text-white tracking-wide">
+                  สินค้าขายดีวันนี้
+                </h2>
+              </div>
+              <span className="text-xs font-mono text-zinc-400 block">
+                เรียงตามยอดขายสะสม
               </span>
             </div>
 
-            <div className="space-y-2.5">
-              {/* Item 1: Pending Slips */}
-              <Link
-                href="/admin/topups"
-                className="p-3.5 rounded-xl bg-obsidian-900 border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between block group"
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <CreditCard className="w-3.5 h-3.5 text-amber-400" />
-                    <span className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
-                      สลิปรอตรวจสอบ
+            <div className="space-y-3.5">
+              {bestSellers.map((t) => (
+                <div key={t.code} className="space-y-1.5">
+                  <div className="flex items-center justify-between text-sm font-mono">
+                    <div className="flex items-center gap-2">
+                      <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 font-bold text-xs">
+                        {t.code}
+                      </span>
+                      <span className="text-zinc-300 text-xs">{t.units} ชิ้น</span>
+                    </div>
+                    <span className="font-bold text-white num-tabular">
+                      {formatBaht(t.rev)}
                     </span>
                   </div>
-                  <span className="text-[11px] text-slate-400 block">
-                    ยอดรวม ฿1,150.00 (PromptPay)
-                  </span>
-                </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-amber-500/15 text-amber-400 num-tabular">
-                    3
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-white transition-colors" />
-                </div>
-              </Link>
-
-              {/* Item 2: Low Stock Alert */}
-              <Link
-                href="/admin/stocks"
-                className="p-3.5 rounded-xl bg-obsidian-900 border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between block group"
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <Boxes className="w-3.5 h-3.5 text-red-400" />
-                    <span className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
-                      สินค้าใกล้หมดสต็อก
-                    </span>
+                  <div className="h-2 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
+                    <div
+                      className="h-full bg-white rounded-full"
+                      style={{ width: t.width }}
+                    />
                   </div>
-                  <span className="text-[11px] text-slate-400 block">
-                    Blox Fruits CDK, Robux Auto
-                  </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-red-500/15 text-red-400 num-tabular">
-                    4
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-white transition-colors" />
-                </div>
-              </Link>
+              ))}
+            </div>
+          </div>
 
-              {/* Item 3: Claim Tickets */}
-              <Link
-                href="/support"
-                className="p-3.5 rounded-xl bg-obsidian-900 border border-white/[0.06] hover:border-white/15 transition-all flex items-center justify-between block group"
-              >
-                <div className="space-y-0.5">
-                  <div className="flex items-center gap-1.5">
-                    <ShieldCheck className="w-3.5 h-3.5 text-blue-400" />
-                    <span className="text-xs font-semibold text-white group-hover:text-blue-400 transition-colors">
-                      ทิกเก็ตแจ้งปัญหาเคลม
-                    </span>
+          <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-3">
+            <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
+              <h2 className="text-base font-bold text-white tracking-wide">
+                สถานะระบบ (Telemetry)
+              </h2>
+              <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                ทำงานปกติ
+              </span>
+            </div>
+
+            <div className="divide-y divide-zinc-800/70 text-sm">
+              {telemetrySystems.map((s) => (
+                <div
+                  key={s.name}
+                  className="py-2.5 flex items-center justify-between gap-2"
+                >
+                  <div className="flex items-center gap-2 min-w-0">
+                    <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                    <span className="text-zinc-200 truncate">{s.name}</span>
                   </div>
-                  <span className="text-[11px] text-slate-400 block">
-                    รอทีมงานติดต่อกลับ 1 เคส
+                  <span className="text-xs font-mono text-emerald-400 shrink-0">
+                    {s.note}
                   </span>
                 </div>
-                <div className="flex items-center gap-1.5">
-                  <span className="px-2 py-0.5 rounded text-xs font-bold bg-blue-500/15 text-blue-400 num-tabular">
-                    1
-                  </span>
-                  <ArrowRight className="w-3.5 h-3.5 text-slate-500 group-hover:text-white transition-colors" />
-                </div>
-              </Link>
+              ))}
             </div>
-          </section>
-
-          {/* Bento Block 4: Automation & System Pulse */}
-          <section className="luxury-card rounded-2xl p-5 sm:p-6 border border-white/10 space-y-4">
-            <div className="flex items-center justify-between pb-3 border-b border-white/[0.06]">
-              <div className="flex items-center gap-2">
-                <Zap className="w-4 h-4 text-emerald-400" />
-                <h2 className="text-sm font-bold text-white tracking-wide">
-                  สถานะระบบอัตโนมัติ 24/7
-                </h2>
-              </div>
-              <span className="text-[10px] text-emerald-400 font-mono">ALL SYSTEMS NOMINAL</span>
-            </div>
-
-            <div className="space-y-3 text-xs">
-              <div className="flex items-center justify-between py-1">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>บอทส่งมอบรหัสเกม</span>
-                </span>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">
-                  0.8s
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-1 border-t border-white/[0.04]">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>เกตเวย์ตรวจสลิป PromptPay</span>
-                </span>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">
-                  ONLINE
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-1 border-t border-white/[0.04]">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>ฐานข้อมูล PostgreSQL Prisma</span>
-                </span>
-                <span className="text-emerald-400 font-mono font-semibold text-[11px]">
-                  4ms
-                </span>
-              </div>
-
-              <div className="flex items-center justify-between py-1 border-t border-white/[0.04]">
-                <span className="text-slate-300 flex items-center gap-2">
-                  <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
-                  <span>สำรองข้อมูลอัตโนมัติ</span>
-                </span>
-                <span className="text-slate-400 font-mono text-[11px]">
-                  04:00 น.
-                </span>
-              </div>
-            </div>
-          </section>
+          </div>
         </div>
-      </div>
+      </section>
+
+      {/* ORDER DETAIL DRAWER */}
+      <OrderDetailDrawer
+        order={selectedOrder}
+        onClose={() => setSelectedOrder(null)}
+        onResendDm={(ord) =>
+          showNotification(`ส่งรหัสออเดอร์ #${ord.orderNumber} ซ้ำเข้า Discord DM สำเร็จ`)
+        }
+        onToggleRefund={handleToggleRefund}
+        onReplaceStock={handleReplaceStock}
+      />
     </div>
   );
 }

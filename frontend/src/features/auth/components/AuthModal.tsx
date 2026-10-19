@@ -41,17 +41,21 @@ export function AuthModal() {
         onClick={(e) => e.stopPropagation()}
       >
         {/* Header with Close */}
-        <div className="flex items-center justify-between p-5 border-b border-white/[0.08]">
-          <div className="flex items-center gap-2">
-            <span className="w-2 h-2 rounded-full bg-blue-400" />
-            <h2 className="text-sm font-semibold tracking-wide text-white uppercase">
-              KAITAN STORE AUTH
+        <div className="flex items-center justify-between p-5 border-b border-zinc-800">
+          <div className="flex items-center gap-2.5">
+            <img
+              src="/assets/kaizort_logo_v4.jpeg"
+              alt="KaiZort Logo"
+              className="w-6 h-6 rounded-sm object-cover border border-zinc-700"
+            />
+            <h2 className="text-xs font-mono font-semibold tracking-wider text-white uppercase">
+              KAIZORT // AUTHENTICATION
             </h2>
           </div>
           <button
             type="button"
             onClick={closeAuthModal}
-            className="p-1.5 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.06] transition-colors"
+            className="p-1.5 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors"
             aria-label="ปิดหน้าต่าง"
           >
             <X className="w-4 h-4" />

@@ -9,11 +9,11 @@ export function ProductCard({ product }: { product: Product }) {
   return (
     <div
       className={cn(
-        "luxury-card rounded-xl overflow-hidden flex flex-col justify-between group",
-        soldOut && "opacity-50",
+        "luxury-card rounded-lg overflow-hidden flex flex-col justify-between group",
+        soldOut && "opacity-55",
       )}
     >
-      <div className="relative aspect-video bg-obsidian-950 overflow-hidden">
+      <div className="relative aspect-video bg-obsidian-950 overflow-hidden border-b border-zinc-800/80">
         <img
           src={product.image}
           alt={product.title}
@@ -24,30 +24,30 @@ export function ProductCard({ product }: { product: Product }) {
               : "group-hover:scale-105 transition-transform duration-500",
           )}
         />
-        <div className="absolute inset-0 bg-gradient-to-t from-obsidian-950/80 via-transparent to-transparent" />
+        <div className="absolute inset-0 bg-gradient-to-t from-obsidian-950/85 via-transparent to-transparent" />
 
         {soldOut ? (
-          <div className="absolute inset-0 bg-obsidian-950/70 flex items-center justify-center">
-            <span className="px-2.5 py-1 rounded text-[11px] font-semibold bg-white/10 border border-white/20 text-slate-300">
+          <div className="absolute inset-0 bg-obsidian-950/75 flex items-center justify-center">
+            <span className="px-2.5 py-1 rounded-sm text-[11px] font-mono font-semibold bg-zinc-900 border border-zinc-700 text-zinc-300">
               สินค้าหมดชั่วคราว
             </span>
           </div>
         ) : (
           <>
             {product.badge && (
-              <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded text-[10px] font-semibold bg-obsidian-900/90 text-slate-200 border border-white/10">
+              <span className="absolute top-2.5 left-2.5 px-2 py-0.5 rounded-sm text-[10px] font-mono font-semibold bg-obsidian-950/90 text-white border border-zinc-700">
                 {product.badge}
               </span>
             )}
             {product.discountPercent && (
-              <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded text-[10px] font-semibold bg-white/10 text-slate-300 border border-white/10">
+              <span className="absolute top-2.5 right-2.5 px-1.5 py-0.5 rounded-sm text-[10px] font-mono font-bold bg-white text-zinc-950">
                 -{product.discountPercent}%
               </span>
             )}
           </>
         )}
 
-        <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded bg-obsidian-950/80 text-[10px] text-slate-400 font-mono">
+        <span className="absolute bottom-2 right-2 px-1.5 py-0.5 rounded-sm bg-obsidian-950/90 border border-zinc-800 text-[10px] text-zinc-400 font-mono">
           {product.code}
         </span>
       </div>
@@ -57,7 +57,7 @@ export function ProductCard({ product }: { product: Product }) {
           <h3
             className={cn(
               "font-semibold text-xs line-clamp-2 leading-relaxed",
-              soldOut ? "text-slate-400" : "text-white",
+              soldOut ? "text-zinc-400" : "text-white",
             )}
           >
             {product.title}
@@ -67,10 +67,10 @@ export function ProductCard({ product }: { product: Product }) {
               <span
                 key={tag}
                 className={cn(
-                  "px-1.5 py-0.5 rounded text-[10px]",
+                  "px-1.5 py-0.5 rounded-sm text-[10px] border border-zinc-800/80",
                   soldOut
-                    ? "bg-white/[0.04] text-slate-500"
-                    : "bg-white/[0.05] text-slate-400",
+                    ? "bg-zinc-900/50 text-zinc-500"
+                    : "bg-zinc-900 text-zinc-400",
                 )}
               >
                 {tag}
@@ -79,17 +79,17 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
         </div>
 
-        <div className="pt-2 border-t border-white/[0.06] flex items-center justify-between">
+        <div className="pt-2.5 border-t border-zinc-800/80 flex items-center justify-between">
           <div>
             {product.originalPrice && !soldOut && (
-              <span className="text-[10px] text-slate-500 line-through num-tabular">
+              <span className="text-[10px] text-zinc-500 line-through font-mono num-tabular">
                 {formatBaht(product.originalPrice)}
               </span>
             )}
             <p
               className={cn(
-                "text-base font-bold num-tabular",
-                soldOut ? "text-slate-500" : "text-white",
+                "text-base font-bold font-mono num-tabular",
+                soldOut ? "text-zinc-500" : "text-white",
               )}
             >
               {formatBaht(product.price)}
@@ -97,12 +97,12 @@ export function ProductCard({ product }: { product: Product }) {
           </div>
 
           {soldOut ? (
-            <span className="text-[11px] text-slate-500 num-tabular">
-              หมด • กำลังเติมสต็อก
+            <span className="text-[11px] font-mono text-zinc-500 num-tabular">
+              OUT OF STOCK
             </span>
           ) : (
-            <div className="flex items-center gap-1 text-[11px] text-emerald-400 num-tabular">
-              <span className="w-1.5 h-1.5 rounded-full bg-emerald-400" />
+            <div className="flex items-center gap-1.5 text-[11px] font-mono text-emerald-400 num-tabular">
+              <span className="w-1.5 h-1.5 bg-emerald-400" />
               <span>เหลือ {product.stock} ชิ้น</span>
             </div>
           )}
@@ -112,10 +112,10 @@ export function ProductCard({ product }: { product: Product }) {
           type="button"
           disabled={soldOut}
           className={cn(
-            "w-full py-2 rounded-lg text-xs font-semibold transition-colors flex items-center justify-center gap-1.5",
+            "w-full py-2 rounded-md text-xs font-semibold transition-colors flex items-center justify-center gap-1.5",
             soldOut
-              ? "text-slate-500 bg-white/[0.04] cursor-not-allowed font-medium"
-              : "text-white bg-blue-600 hover:bg-blue-500 transition-colors cursor-pointer",
+              ? "text-zinc-500 bg-zinc-900 border border-zinc-800 cursor-not-allowed font-medium"
+              : "text-zinc-950 bg-white hover:bg-zinc-200 transition-colors cursor-pointer",
           )}
         >
           {soldOut ? (

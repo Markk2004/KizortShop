@@ -1,3 +1,7 @@
+export type StockMode = "POOL" | "UNIQUE_1TO1";
+export type CredentialFormat = "USER_PASS" | "USER_PASS_2FA" | "COOKIE_TOKEN" | "REDEEM_KEY";
+export type StockStatus = "AVAILABLE" | "RESERVED" | "SOLD" | "CLAIMED_DEFECTIVE";
+
 export class CreateAdminProductDto {
   code: string;
   title: string;
@@ -7,6 +11,8 @@ export class CreateAdminProductDto {
   originalPrice?: number;
   badge?: "BEST SELLER" | "HOT DEAL" | "NEW ITEM";
   image: string;
+  stockMode?: StockMode; // POOL vs UNIQUE_1TO1
+  credentialFormat?: CredentialFormat;
   tags?: string[];
 }
 
@@ -15,12 +21,25 @@ export class UpdateAdminProductDto {
   price?: number;
   originalPrice?: number;
   badge?: "BEST SELLER" | "HOT DEAL" | "NEW ITEM";
+  stockMode?: StockMode;
+  credentialFormat?: CredentialFormat;
   isActive?: boolean;
 }
 
 export class AddStockBatchDto {
   productId: string;
-  credentials: string[]; // List of "USER:PASS" or "KEY" lines
+  productCode?: string;
+  credentials: string[]; // List of raw items
+  batchCode?: string; // e.g. LOT-261018-A
+  supplierName?: string; // Farm or Supplier
+  costPrice?: number; // Cost per item in THB
+  allowRestockOverride?: boolean; // If true, re-admits existing credentialHash
+}
+
+export class UpdateStockStatusDto {
+  status: StockStatus;
+  defectReason?: string;
+  orderNumber?: string;
 }
 
 export class UpdateRobuxStatusDto {

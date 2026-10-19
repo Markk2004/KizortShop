@@ -4,11 +4,11 @@ import { Bell, ShieldCheck } from "lucide-react";
 
 export function AdminHeader() {
   return (
-    <header className="h-16 shrink-0 bg-obsidian-950/80 backdrop-blur-xl border-b border-white/[0.08] px-6 flex items-center justify-between z-20">
+    <header className="h-16 shrink-0 bg-obsidian-950/90 backdrop-blur-md border-b border-zinc-800 px-6 flex items-center justify-between z-20">
       <div className="flex items-center gap-3">
-        <span className="px-2.5 py-1 rounded-full bg-red-500/10 border border-red-500/20 text-red-400 text-[11px] font-semibold flex items-center gap-1.5 font-mono">
-          <ShieldCheck className="w-3.5 h-3.5" />
-          <span>ADMIN ACCESS PRIVILEGE</span>
+        <span className="px-2.5 py-1 rounded-sm bg-zinc-900 border border-zinc-700 text-zinc-200 text-[11px] font-semibold flex items-center gap-1.5 font-mono">
+          <ShieldCheck className="w-3.5 h-3.5 text-emerald-400" />
+          <span>KZ // ROOT PRIVILEGE ACTIVE</span>
         </span>
       </div>
 
@@ -16,22 +16,24 @@ export function AdminHeader() {
         <button
           type="button"
           aria-label="การแจ้งเตือนระบบ"
-          className="relative p-2 rounded-lg text-slate-400 hover:text-white hover:bg-white/[0.05] transition-colors"
+          className="relative p-2 rounded-md text-zinc-400 hover:text-white hover:bg-zinc-900 transition-colors cursor-pointer"
         >
           <Bell className="w-4 h-4" />
-          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 rounded-full bg-red-500" />
+          <span className="absolute top-1.5 right-1.5 w-1.5 h-1.5 bg-white" />
         </button>
 
-        <div className="flex items-center gap-2.5 pl-3 border-l border-white/[0.08]">
-          <div className="w-7 h-7 rounded-lg bg-red-500/20 border border-red-500/30 flex items-center justify-center text-xs font-bold text-red-400">
-            A
-          </div>
+        <div className="flex items-center gap-2.5 pl-3 border-l border-zinc-800">
+          <img
+            src="/assets/kaizort_logo_v4.jpeg"
+            alt="KaiZort Admin Logo"
+            className="w-7 h-7 rounded-sm object-cover border border-zinc-700"
+          />
           <div className="text-left">
             <p className="text-xs font-semibold text-white leading-tight">
-              Administrator
+              KaiZort Admin
             </p>
-            <p className="text-[10px] text-slate-500 leading-tight">
-              Root Level
+            <p className="text-[10px] font-mono text-zinc-500 leading-tight">
+              ROOT // SYS.01
             </p>
           </div>
         </div>

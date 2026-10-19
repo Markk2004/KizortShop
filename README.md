@@ -3,6 +3,7 @@
 โปรเจกต์ร้านค้าไอดีเกมและบริการ Roblox อัตโนมัติ 24 ชม. สไตล์ **Refined Luxury Dark Mode** แยกส่วน `frontend/` และ `backend/` ภายใต้ Git Monorepo เดียวกัน
 
 - **GitHub Repository**: [https://github.com/Markk2004/KizortShop.git](https://github.com/Markk2004/KizortShop.git)
+- **SME Architecture & Route Plan**: [ARCHITECTURE_SME.md](./ARCHITECTURE_SME.md)
 - **Production / Dev Web**: [http://localhost:3000](http://localhost:3000)
 - **Admin Management Portal**: [http://localhost:3000/admin/dashboard](http://localhost:3000/admin/dashboard)
 

@@ -8,9 +8,11 @@ import {
   ChevronRight,
   ShoppingCart,
 } from "lucide-react";
+import { siteConfig } from "@/config/site";
 
 interface HeroSlide {
   id: string;
+  code: string;
   tag: string;
   title: string;
   titleHighlight: string;
@@ -25,7 +27,8 @@ interface HeroSlide {
 const slides: HeroSlide[] = [
   {
     id: "slide_roblox",
-    tag: "แพลตฟอร์มซื้อขายไอดีเกม ROBLOX อันดับ 1",
+    code: "KZ // 01",
+    tag: "KAIZORT ROBLOX VAULT SYSTEM",
     title: "ศูนย์รวมไอดีเกม Roblox ไก่ตันระดับท็อป",
     titleHighlight: "ปลดล็อกผลปีศาจตื่น ดาบคู่ และไอเทมแรร์ครบทุกแมพ",
     description:
@@ -38,11 +41,12 @@ const slides: HeroSlide[] = [
   },
   {
     id: "slide_security",
-    tag: "ระบบตรวจสอบและส่งมอบอัตโนมัติ 24/7",
+    code: "KZ // 02",
+    tag: "24/7 AUTOMATED ESCROW & VAULT",
     title: "คัดสรรไอดีไก่ตันระดับพรีเมียม",
     titleHighlight: "ความปลอดภัยสูงสุด ส่งมอบทันทีใน 0.8 วินาที",
     description:
-      "รับประกันสินค้าทุกรายการด้วยระบบ Vault อัจฉริยะ ป้องกันการดึงกลับ 100% พร้อมทีมงานดูแลหลังการขายตลอด 24 ชั่วโมง",
+      "รับประกันสินค้าทุกรายการด้วยระบบ KaiZort Vault เข้ารหัส AES-256 ป้องกันการดึงกลับ 100% พร้อมทีมงานดูแลตลอด 24 ชั่วโมง",
     ctaText: "เลือกซื้อสินค้าทันที",
     ctaLink: "/products",
     secondaryText: "เงื่อนไขการรับประกัน",
@@ -51,11 +55,12 @@ const slides: HeroSlide[] = [
   },
   {
     id: "slide_gaming_news",
-    tag: "ข่าวสารเกมและอัปเดตแพตช์ระบบ",
+    code: "KZ // 03",
+    tag: "PATCH NOTES & META UPDATES",
     title: "อัปเดตข่าวสารวงการเกมและแพตช์ใหม่",
     titleHighlight: "เจาะลึกข้อมูลระบบ รีเซ็ตซีซัน และเทคนิคการเล่น",
     description:
-      "ติดตามข่าวสารการอัปเดตแพตช์ล่าสุดของเกม Roblox ข้อมูลการปรับสมดุลผลปีศาจ ดาบใหม่ และกิจกรรมพิเศษ เพื่อความได้เปรียบในทุกการต่อสู้",
+      "ติดตามข่าวสารการอัปเดตแพตช์ล่าสุดของเกม Roblox ข้อมูลการปรับสมดุลผลปีศาจ ดาบใหม่ และกิจกรรมพิเศษจาก KaiZort",
     ctaText: "อ่านสรุปข่าวสารแพตช์",
     ctaLink: "/support",
     secondaryText: "ดูหมวดหมู่สินค้า",
@@ -64,11 +69,12 @@ const slides: HeroSlide[] = [
   },
   {
     id: "slide_community",
-    tag: "สิทธิพิเศษสมาชิก DISCORD VIP",
-    title: "เข้าร่วมคอมมูนิตี้เกมเมอร์ KAITAN",
+    code: "KZ // 04",
+    tag: "DISCORD VIP COMMUNITY",
+    title: "เข้าร่วมคอมมูนิตี้เกมเมอร์ KaiZort",
     titleHighlight: "ลุ้นรับไอดีผลตื่นฟรีประจำสัปดาห์ และตั๋วเคลมด่วน",
     description:
-      "สังคมคนเล่นเกม Roblox มากกว่า 15,000 คน อัปเดตโค้ดแจกฟรี พูดคุยแลกเปลี่ยน และรับสิทธิ์คุ้มครองพิเศษระดับ Diamond VIP",
+      "สังคมคนเล่นเกม Roblox มากกว่า 15,000 คน อัปเดตโค้ดแจกฟรี พูดคุยแลกเปลี่ยน และรับสิทธิ์แจ้งเตือนรหัสผ่านทาง Discord DM",
     ctaText: "เข้าร่วม Discord VIP",
     ctaLink: "https://discord.gg",
     secondaryText: "ศูนย์บริการสมาชิก",
@@ -77,18 +83,17 @@ const slides: HeroSlide[] = [
   },
 ];
 
-const AUTO_SLIDE_INTERVAL = 6000; // 6 seconds
+const AUTO_SLIDE_INTERVAL = 6000;
 
 export function HeroSection() {
   const [current, setCurrent] = useState(0);
   const [isPaused, setIsPaused] = useState(false);
   const [progress, setProgress] = useState(0);
 
-  // Auto-play timer with progress bar
   useEffect(() => {
     if (isPaused) return;
 
-    const tickInterval = 50; // update progress every 50ms
+    const tickInterval = 50;
     const step = (tickInterval / AUTO_SLIDE_INTERVAL) * 100;
 
     const timer = setInterval(() => {
@@ -124,12 +129,12 @@ export function HeroSection() {
   return (
     <section
       id="section-hero"
-      aria-label="ไฮไลต์และโปรโมชั่น"
+      aria-label="ไฮไลต์และโปรโมชั่น KaiZort"
       onMouseEnter={() => setIsPaused(true)}
       onMouseLeave={() => setIsPaused(false)}
-      className="relative rounded-2xl overflow-hidden border border-white/[0.08] bg-obsidian-950 p-6 sm:p-10 lg:p-12 min-h-[360px] sm:min-h-[420px] flex flex-col justify-between shadow-[0_12px_48px_rgba(0,0,0,0.8)]"
+      className="relative rounded-lg overflow-hidden border border-zinc-800 bg-obsidian-950 p-6 sm:p-10 lg:p-12 min-h-[360px] sm:min-h-[410px] flex flex-col justify-between"
     >
-      {/* Background Banner Artwork with Multi-stage Vignette */}
+      {/* Background Banner Artwork */}
       {slides.map((s, idx) => (
         <div
           key={s.id}
@@ -145,36 +150,52 @@ export function HeroSection() {
         </div>
       ))}
 
-      {/* Deep Obsidian Gradient Vignettes to maintain perfect contrast and readability */}
-      <div className="absolute inset-0 bg-gradient-to-r from-obsidian-950 via-obsidian-950/85 to-transparent pointer-events-none" />
+      {/* Crisp Matte Obsidian Vignette */}
+      <div className="absolute inset-0 bg-gradient-to-r from-obsidian-950 via-obsidian-950/90 to-obsidian-950/20 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-t from-obsidian-950 via-transparent to-transparent pointer-events-none" />
 
+      {/* Top Right Y2K KZ Monogram Watermark */}
+      <div className="hidden lg:flex items-center gap-3 absolute top-8 right-10 z-10 px-3 py-2 rounded-md bg-obsidian-950/90 border border-zinc-800">
+        <img
+          src={siteConfig.logo}
+          alt="KaiZort Y2K Monogram"
+          className="w-9 h-9 rounded-sm object-cover border border-zinc-700"
+        />
+        <div className="text-left">
+          <span className="text-xs font-bold tracking-wider text-white font-display block">
+            KAIZORT // KZ
+          </span>
+          <span className="text-[10px] font-mono text-emerald-400 block">
+            VERIFIED VAULT 24/7
+          </span>
+        </div>
+      </div>
+
       {/* Main Slide Content */}
-      <div className="max-w-2xl space-y-4 relative z-10 animate-in fade-in duration-300 key={current}">
-        {/* Clean Editorial Tag Label - No Box */}
-        <div className="flex items-center gap-2 text-xs font-semibold tracking-wider uppercase text-blue-400">
-          <span className="w-1.5 h-1.5 rounded-full bg-blue-400" />
-          <span>{slide.tag}</span>
+      <div className="max-w-2xl space-y-4 relative z-10">
+        <div className="flex items-center gap-2.5 text-[11px] font-mono tracking-widest uppercase">
+          <span className="px-1.5 py-0.5 bg-white text-zinc-950 font-bold">
+            {slide.code}
+          </span>
+          <span className="text-zinc-300 font-semibold">{slide.tag}</span>
         </div>
 
-        {/* Title & Headline */}
         <h1 className="text-2xl sm:text-3xl lg:text-4xl font-bold text-white tracking-tight leading-snug">
-          {slide.title} <br />
-          <span className="text-slate-300 font-normal text-lg sm:text-2xl lg:text-3xl block mt-1">
+          {slide.title}
+          <span className="text-zinc-300 font-normal text-lg sm:text-2xl lg:text-2xl block mt-1.5">
             {slide.titleHighlight}
           </span>
         </h1>
 
-        {/* Description */}
-        <p className="text-slate-400 text-xs sm:text-sm leading-relaxed max-w-xl">
+        <p className="text-zinc-400 text-xs sm:text-sm leading-relaxed max-w-xl">
           {slide.description}
         </p>
 
-        {/* CTA Buttons - Solid Pure Colors, No Gradient, No Glow */}
+        {/* High-Contrast Architectural CTA Buttons */}
         <div className="flex flex-wrap items-center gap-3 pt-2">
           <Link
             href={slide.ctaLink}
-            className="px-5 py-2.5 rounded-xl text-xs font-semibold text-slate-950 bg-white hover:bg-slate-200 transition-colors flex items-center gap-2 cursor-pointer shadow-sm"
+            className="px-5 py-2.5 rounded-md text-xs font-semibold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-2 cursor-pointer"
           >
             <ShoppingCart className="w-3.5 h-3.5" />
             <span>{slide.ctaText}</span>
@@ -182,16 +203,15 @@ export function HeroSection() {
           </Link>
           <Link
             href={slide.secondaryLink}
-            className="px-4 py-2.5 rounded-xl text-xs font-medium text-slate-300 bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 transition-colors cursor-pointer"
+            className="px-4 py-2.5 rounded-md text-xs font-medium text-zinc-200 bg-zinc-900/90 hover:bg-zinc-800 border border-zinc-700 transition-colors cursor-pointer"
           >
             {slide.secondaryText}
           </Link>
         </div>
       </div>
 
-      {/* Bottom Luxury Progress Capsule & Slide Controls */}
-      <div className="relative z-10 pt-6 mt-6 border-t border-white/[0.07] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-        {/* Slide Indicators with Progress Fill */}
+      {/* Bottom Architectural Progress Bar & Slide Controls */}
+      <div className="relative z-10 pt-6 mt-6 border-t border-zinc-800/90 flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
         <div className="flex items-center gap-2">
           {slides.map((s, idx) => {
             const isActive = idx === current;
@@ -201,12 +221,10 @@ export function HeroSection() {
                 type="button"
                 onClick={() => goToSlide(idx)}
                 aria-label={`ไปยังสไลด์ที่ ${idx + 1}`}
-                className="group/pill relative h-1.5 rounded-full overflow-hidden transition-all duration-300 cursor-pointer"
-                style={{ width: isActive ? "48px" : "18px" }}
+                className="relative h-1.5 overflow-hidden transition-all duration-300 cursor-pointer"
+                style={{ width: isActive ? "52px" : "20px" }}
               >
-                {/* Background track */}
-                <div className="absolute inset-0 bg-white/20 group-hover/pill:bg-white/30" />
-                {/* Progress bar inside active pill - Solid white, no gradient */}
+                <div className="absolute inset-0 bg-zinc-800" />
                 {isActive && (
                   <div
                     className="absolute inset-0 bg-white"
@@ -218,10 +236,9 @@ export function HeroSection() {
           })}
         </div>
 
-        {/* Controls: Counter + Prev/Next buttons */}
         <div className="flex items-center gap-3 self-end sm:self-auto">
-          <span className="text-xs font-mono font-semibold text-slate-400 num-tabular">
-            0{current + 1} <span className="text-slate-600">/</span> 0{slides.length}
+          <span className="text-xs font-mono font-semibold text-zinc-400 num-tabular">
+            0{current + 1} <span className="text-zinc-700">/</span> 0{slides.length}
           </span>
 
           <div className="flex items-center gap-1.5">
@@ -229,7 +246,7 @@ export function HeroSection() {
               type="button"
               onClick={prevSlide}
               aria-label="สไลด์ก่อนหน้า"
-              className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
             >
               <ChevronLeft className="w-4 h-4" />
             </button>
@@ -237,7 +254,7 @@ export function HeroSection() {
               type="button"
               onClick={nextSlide}
               aria-label="สไลด์ถัดไป"
-              className="w-8 h-8 rounded-lg bg-white/[0.06] hover:bg-white/[0.12] border border-white/10 flex items-center justify-center text-slate-300 hover:text-white transition-colors cursor-pointer"
+              className="w-8 h-8 rounded-md bg-zinc-900 hover:bg-zinc-800 border border-zinc-800 flex items-center justify-center text-zinc-300 hover:text-white transition-colors cursor-pointer"
             >
               <ChevronRight className="w-4 h-4" />
             </button>

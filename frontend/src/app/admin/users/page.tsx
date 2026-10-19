@@ -9,6 +9,12 @@ import {
   X,
 } from "lucide-react";
 import { formatBaht } from "@/lib/format";
+import { AdminPagination } from "@/features/admin/components/AdminPagination";
+import {
+  AdminSmartFilterBar,
+  verifySearchInput,
+  type SearchFieldMode,
+} from "@/features/admin/components/AdminSmartFilterBar";
 
 interface StoreUser {
   id: string;
@@ -26,7 +32,7 @@ const initialUsers: StoreUser[] = [
   {
     id: "usr_001",
     username: "Sal***",
-    email: "sal***@kaitanstudio.com",
+    email: "sal***@kaizort.store",
     role: "ADMIN",
     tier: "Diamond",
     balance: 2500,
@@ -78,13 +84,93 @@ const initialUsers: StoreUser[] = [
     registeredAt: "2026-10-14",
     totalOrders: 0,
   },
+  {
+    id: "usr_006",
+    username: "kitsune_slayer",
+    email: "kitsune@kaizort.gg",
+    role: "MEMBER",
+    tier: "Diamond",
+    balance: 3200,
+    status: "ACTIVE",
+    registeredAt: "2026-10-15",
+    totalOrders: 27,
+  },
+  {
+    id: "usr_007",
+    username: "zoro_three_sword",
+    email: "zoro@grandline.io",
+    role: "MEMBER",
+    tier: "VIP",
+    balance: 680,
+    status: "ACTIVE",
+    registeredAt: "2026-10-15",
+    totalOrders: 9,
+  },
+  {
+    id: "usr_008",
+    username: "nova_striker",
+    email: "nova@cybermail.co",
+    role: "MEMBER",
+    tier: "Standard",
+    balance: 150,
+    status: "ACTIVE",
+    registeredAt: "2026-10-16",
+    totalOrders: 3,
+  },
+  {
+    id: "usr_009",
+    username: "vanguard_ops",
+    email: "ops@kaizort.store",
+    role: "ADMIN",
+    tier: "Diamond",
+    balance: 5000,
+    status: "ACTIVE",
+    registeredAt: "2026-09-05",
+    totalOrders: 62,
+  },
+  {
+    id: "usr_010",
+    username: "anime_defender_th",
+    email: "defender@roblox.th",
+    role: "MEMBER",
+    tier: "VIP",
+    balance: 890,
+    status: "ACTIVE",
+    registeredAt: "2026-10-17",
+    totalOrders: 14,
+  },
+  {
+    id: "usr_011",
+    username: "slip_faker_99",
+    email: "scam99@temp.org",
+    role: "MEMBER",
+    tier: "Standard",
+    balance: 0,
+    status: "BANNED",
+    registeredAt: "2026-10-17",
+    totalOrders: 1,
+  },
+  {
+    id: "usr_012",
+    username: "luna_eclipse",
+    email: "luna@moonlight.gg",
+    role: "MEMBER",
+    tier: "Standard",
+    balance: 420,
+    status: "ACTIVE",
+    registeredAt: "2026-10-18",
+    totalOrders: 6,
+  },
 ];
 
 export default function AdminUsersPage() {
   const [users, setUsers] = useState<StoreUser[]>(initialUsers);
   const [searchQuery, setSearchQuery] = useState<string>("");
+  const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [roleFilter, setRoleFilter] = useState<"ALL" | "MEMBER" | "ADMIN">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "BANNED">("ALL");
+  const [currentPage, setCurrentPage] = useState<number>(1);
+  const [pageSize, setPageSize] = useState<number>(5);
   const [notification, setNotification] = useState<string | null>(null);
 
   // Balance adjustment modal state
@@ -181,18 +267,39 @@ export default function AdminUsersPage() {
     showNotification(`สร้างบัญชีผู้ใช้ ${created.username} เรียบร้อยแล้ว`);
   };
 
+  const verification = verifySearchInput(searchQuery, searchMode);
+
   // Filter users
   const filteredUsers = users.filter((u) => {
     if (roleFilter !== "ALL" && u.role !== roleFilter) return false;
     if (statusFilter !== "ALL" && u.status !== statusFilter) return false;
-    if (!searchQuery.trim()) return true;
-    const q = searchQuery.toLowerCase();
+    const q = searchQuery.trim().toLowerCase();
+    if (!q) return true;
+    if (!verification.isValid) return false;
+
+    if (searchMode === "ORDER_ID" || searchMode === "SKU_CODE") {
+      return u.id.toLowerCase().includes(q) || u.tier.toLowerCase().includes(q);
+    }
+    if (searchMode === "USERNAME") {
+      return u.username.toLowerCase().includes(q) || u.email.toLowerCase().includes(q);
+    }
+    if (searchMode === "NUMBER_PRICE") {
+      return String(u.balance).includes(q) || String(u.totalOrders).includes(q);
+    }
+
     return (
       u.username.toLowerCase().includes(q) ||
       u.email.toLowerCase().includes(q) ||
-      u.id.toLowerCase().includes(q)
+      u.id.toLowerCase().includes(q) ||
+      u.tier.toLowerCase().includes(q) ||
+      String(u.balance).includes(q)
     );
   });
+
+  const paginatedUsers = filteredUsers.slice(
+    (currentPage - 1) * pageSize,
+    currentPage * pageSize,
+  );
 
   const totalMembers = users.length;
   const activeMembers = users.filter((u) => u.status === "ACTIVE").length;
@@ -202,12 +309,15 @@ export default function AdminUsersPage() {
   return (
     <div className="space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-white/[0.08]">
+      <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-4 pb-4 border-b border-zinc-800">
         <div>
-          <h1 className="text-xl font-bold text-white tracking-tight">
+          <span className="text-xs font-mono uppercase tracking-widest text-zinc-400 block mb-1">
+            KZ // MEMBER DIRECTORY & WALLET ACCESS
+          </span>
+          <h1 className="text-2xl font-bold text-white tracking-tight">
             จัดการผู้ใช้งานร้านค้า (User Management)
           </h1>
-          <p className="text-xs text-slate-400 mt-1">
+          <p className="text-sm text-zinc-400 mt-0.5">
             ควบคุมสิทธิ์สมาชิก ปรับยอดเครดิตในกระเป๋า และจัดการระงับ/ปลดระงับบัญชี
           </p>
         </div>
@@ -215,7 +325,7 @@ export default function AdminUsersPage() {
         <button
           type="button"
           onClick={() => setShowAddUserModal(true)}
-          className="px-4 py-2 rounded-xl text-xs font-semibold text-white bg-blue-600 hover:bg-blue-500 transition-colors flex items-center gap-1.5 self-start cursor-pointer"
+          className="px-4 py-2.5 rounded-lg text-sm font-semibold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-2 self-start cursor-pointer"
         >
           <UserPlus className="w-4 h-4" />
           <span>เพิ่มสมาชิกใหม่</span>
@@ -224,223 +334,254 @@ export default function AdminUsersPage() {
 
       {/* Floating Notification */}
       {notification && (
-        <div className="p-3 rounded-xl bg-blue-600 text-white text-xs font-medium flex items-center gap-2 animate-in fade-in duration-200">
-          <CheckCircle2 className="w-4 h-4 shrink-0" />
+        <div className="p-3.5 rounded-lg bg-zinc-900 border border-zinc-700 text-white text-sm font-medium flex items-center gap-2">
+          <CheckCircle2 className="w-4 h-4 text-emerald-400 shrink-0" />
           <span>{notification}</span>
         </div>
       )}
 
       {/* Metrics Row */}
       <div className="grid grid-cols-1 sm:grid-cols-4 gap-4">
-        <div className="luxury-card rounded-xl p-4 border border-white/[0.08] space-y-1">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-            สมาชิกทั้งหมด
+        <div className="rounded-xl p-5 bg-obsidian-900 border border-zinc-800 space-y-1">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
+            01 // สมาชิกทั้งหมด
           </span>
-          <p className="text-2xl font-bold text-white num-tabular">
-            {totalMembers} <span className="text-xs font-normal text-slate-400">คน</span>
+          <p className="text-2xl font-bold font-mono text-white num-tabular">
+            {totalMembers} <span className="text-xs font-normal text-zinc-400">คน</span>
           </p>
         </div>
 
-        <div className="luxury-card rounded-xl p-4 border border-white/[0.08] space-y-1">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-            สถานะปกติ (Active)
+        <div className="rounded-xl p-5 bg-obsidian-900 border border-zinc-800 space-y-1">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
+            02 // สถานะปกติ (Active)
           </span>
-          <p className="text-2xl font-bold text-emerald-400 num-tabular">
-            {activeMembers} <span className="text-xs font-normal text-slate-400">คน</span>
+          <p className="text-2xl font-bold font-mono text-emerald-400 num-tabular">
+            {activeMembers} <span className="text-xs font-normal text-zinc-400">คน</span>
           </p>
         </div>
 
-        <div className="luxury-card rounded-xl p-4 border border-white/[0.08] space-y-1">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-            ถูกระงับบัญชี (Banned)
+        <div className="rounded-xl p-5 bg-obsidian-900 border border-zinc-800 space-y-1">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
+            03 // ถูกระงับบัญชี (Banned)
           </span>
-          <p className="text-2xl font-bold text-red-400 num-tabular">
-            {bannedMembers} <span className="text-xs font-normal text-slate-400">คน</span>
+          <p className="text-2xl font-bold font-mono text-red-400 num-tabular">
+            {bannedMembers} <span className="text-xs font-normal text-zinc-400">คน</span>
           </p>
         </div>
 
-        <div className="luxury-card rounded-xl p-4 border border-white/[0.08] space-y-1">
-          <span className="text-[11px] font-semibold text-slate-400 uppercase tracking-wider">
-            ยอดเครดิตหมุนเวียนรวม
+        <div className="rounded-xl p-5 bg-obsidian-900 border border-zinc-800 space-y-1">
+          <span className="text-xs font-mono font-semibold text-zinc-400 uppercase tracking-wider">
+            04 // ยอดเครดิตหมุนเวียนรวม
           </span>
-          <p className="text-2xl font-bold text-blue-400 num-tabular">
+          <p className="text-2xl font-bold font-mono text-white num-tabular">
             {formatBaht(totalBalance)}
           </p>
         </div>
       </div>
 
-      {/* Search & Filter Controls */}
-      <div className="luxury-card rounded-2xl p-4 border border-white/[0.08] flex flex-col sm:flex-row items-start sm:items-center justify-between gap-3">
-        {/* Search */}
-        <div className="relative w-full sm:w-80">
-          <Search className="w-3.5 h-3.5 text-slate-500 absolute left-3 top-1/2 -translate-y-1/2 pointer-events-none" />
-          <input
-            type="search"
-            value={searchQuery}
-            onChange={(e) => setSearchQuery(e.target.value)}
-            placeholder="ค้นหาชื่อผู้ใช้, อีเมล หรือรหัสสมาชิก..."
-            className="w-full bg-obsidian-900 border border-white/[0.08] focus:border-blue-500/50 rounded-xl pl-9 pr-3 py-2 text-xs text-white placeholder-slate-500 focus:outline-none"
-          />
-        </div>
-
-        {/* Filters */}
-        <div className="flex flex-wrap items-center gap-2 self-stretch sm:self-auto justify-end">
+      {/* Smart Filter & Search Verification Bar */}
+      <AdminSmartFilterBar
+        searchQuery={searchQuery}
+        onSearchChange={(val) => {
+          setSearchQuery(val);
+          setCurrentPage(1);
+        }}
+        searchMode={searchMode}
+        onSearchModeChange={(m) => {
+          setSearchMode(m);
+          setCurrentPage(1);
+        }}
+        placeholder="ค้นหาชื่อผู้ใช้ (dark_knight99), อีเมล, รหัสสมาชิก (usr_002) หรือยอดเงิน..."
+        totalMatched={filteredUsers.length}
+        totalAll={users.length}
+      >
+        <div className="flex flex-wrap items-center gap-2">
           {/* Role Filter */}
-          <div className="flex p-0.5 rounded-lg bg-obsidian-900 border border-white/[0.06] text-[11px]">
+          <div className="flex p-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono">
             <button
               type="button"
-              onClick={() => setRoleFilter("ALL")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                roleFilter === "ALL" ? "bg-white/[0.1] text-white" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setRoleFilter("ALL");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                roleFilter === "ALL"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               ทุกสิทธิ์
             </button>
             <button
               type="button"
-              onClick={() => setRoleFilter("MEMBER")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                roleFilter === "MEMBER" ? "bg-white/[0.1] text-white" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setRoleFilter("MEMBER");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                roleFilter === "MEMBER"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
-              Member
+              MEMBER
             </button>
             <button
               type="button"
-              onClick={() => setRoleFilter("ADMIN")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                roleFilter === "ADMIN" ? "bg-white/[0.1] text-red-400 font-semibold" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setRoleFilter("ADMIN");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                roleFilter === "ADMIN"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
-              Admin
+              ADMIN
             </button>
           </div>
 
           {/* Status Filter */}
-          <div className="flex p-0.5 rounded-lg bg-obsidian-900 border border-white/[0.06] text-[11px]">
+          <div className="flex p-1 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono">
             <button
               type="button"
-              onClick={() => setStatusFilter("ALL")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                statusFilter === "ALL" ? "bg-white/[0.1] text-white" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setStatusFilter("ALL");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                statusFilter === "ALL"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               ทุกสถานะ
             </button>
             <button
               type="button"
-              onClick={() => setStatusFilter("ACTIVE")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                statusFilter === "ACTIVE" ? "bg-white/[0.1] text-emerald-400" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setStatusFilter("ACTIVE");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                statusFilter === "ACTIVE"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               ปกติ
             </button>
             <button
               type="button"
-              onClick={() => setStatusFilter("BANNED")}
-              className={`px-2.5 py-1 rounded transition-colors cursor-pointer ${
-                statusFilter === "BANNED" ? "bg-white/[0.1] text-red-400" : "text-slate-400 hover:text-white"
+              onClick={() => {
+                setStatusFilter("BANNED");
+                setCurrentPage(1);
+              }}
+              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                statusFilter === "BANNED"
+                  ? "bg-white text-zinc-950 font-bold"
+                  : "text-zinc-400 hover:text-white"
               }`}
             >
               ระงับ
             </button>
           </div>
         </div>
-      </div>
+      </AdminSmartFilterBar>
 
-      {/* Users Table */}
-      <div className="luxury-card rounded-xl overflow-hidden border border-white/[0.08]">
+      {/* Users Table (Readable 14px Typography) */}
+      <div className="rounded-xl overflow-hidden bg-obsidian-900 border border-zinc-800">
         <div className="overflow-x-auto">
-          <table className="w-full text-left text-xs text-slate-300">
-            <thead className="bg-obsidian-900 border-b border-white/[0.08] text-[11px] font-semibold uppercase text-slate-400">
+          <table className="w-full text-left text-sm text-zinc-200">
+            <thead className="bg-zinc-950/80 border-b border-zinc-800 text-xs font-mono uppercase tracking-wider text-zinc-400">
               <tr>
-                <th className="py-3 px-4">ผู้ใช้งาน / อีเมล</th>
-                <th className="py-3 px-4">สิทธิ์ (Role)</th>
-                <th className="py-3 px-4">ระดับสมาชิก (Tier)</th>
-                <th className="py-3 px-4">ยอดเงินในกระเป๋า</th>
-                <th className="py-3 px-4">ออเดอร์สะสม</th>
-                <th className="py-3 px-4">สถานะ</th>
-                <th className="py-3 px-4 text-right">การจัดการ</th>
+                <th className="py-3.5 px-5">ผู้ใช้งาน / อีเมล</th>
+                <th className="py-3.5 px-5">สิทธิ์ (Role)</th>
+                <th className="py-3.5 px-5">ระดับสมาชิก (Tier)</th>
+                <th className="py-3.5 px-5">ยอดเงินในกระเป๋า</th>
+                <th className="py-3.5 px-5">ออเดอร์สะสม</th>
+                <th className="py-3.5 px-5">สถานะ</th>
+                <th className="py-3.5 px-5 text-right">การจัดการ</th>
               </tr>
             </thead>
-            <tbody className="divide-y divide-white/[0.06]">
-              {filteredUsers.length === 0 ? (
+            <tbody className="divide-y divide-zinc-800/70">
+              {paginatedUsers.length === 0 ? (
                 <tr>
-                  <td colSpan={7} className="py-8 text-center text-slate-500 text-xs">
-                    ไม่พบข้อมูลผู้ใช้งานที่ตรงกับเงื่อนไข
+                  <td colSpan={7} className="py-10 text-center text-zinc-400 text-sm">
+                    ไม่พบข้อมูลผู้ใช้งานที่ตรงกับเงื่อนไขการค้นหา
                   </td>
                 </tr>
               ) : (
-                filteredUsers.map((u) => {
+                paginatedUsers.map((u) => {
                   const isActive = u.status === "ACTIVE";
                   const isAdmin = u.role === "ADMIN";
 
                   return (
-                    <tr key={u.id} className="hover:bg-white/[0.02] transition-colors">
-                      <td className="py-3 px-4">
+                    <tr key={u.id} className="hover:bg-zinc-800/25 transition-colors">
+                      <td className="py-4 px-5">
                         <div className="flex items-center gap-3">
-                          <div className="w-8 h-8 rounded-full bg-white/[0.08] border border-white/10 flex items-center justify-center text-xs font-bold text-white shrink-0">
+                          <div className="w-9 h-9 rounded-lg bg-zinc-950 border border-zinc-700 flex items-center justify-center text-sm font-mono font-bold text-white shrink-0">
                             {u.username.charAt(0).toUpperCase()}
                           </div>
                           <div>
-                            <span className="font-semibold text-white block">
+                            <span className="font-semibold text-white text-sm block">
                               {u.username}
                             </span>
-                            <span className="text-[11px] text-slate-500 font-mono block">
+                            <span className="text-xs text-zinc-400 font-mono block">
                               {u.email}
                             </span>
                           </div>
                         </div>
                       </td>
 
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-5">
                         <button
                           type="button"
                           onClick={() => handleToggleRole(u)}
                           title="คลิกเพื่อสลับสิทธิ์ Admin / Member"
-                          className={`px-2 py-0.5 rounded text-[10px] font-semibold border transition-colors cursor-pointer ${
+                          className={`px-2.5 py-1 rounded-md text-xs font-mono font-semibold border transition-colors cursor-pointer ${
                             isAdmin
                               ? "bg-red-500/15 text-red-400 border-red-500/30 hover:bg-red-500/25"
-                              : "bg-white/[0.06] text-slate-300 border-white/10 hover:bg-white/[0.1]"
+                              : "bg-zinc-900 text-zinc-200 border-zinc-700 hover:bg-zinc-800"
                           }`}
                         >
                           {u.role}
                         </button>
                       </td>
 
-                      <td className="py-3 px-4">
-                        <span className="font-medium text-slate-300">{u.tier}</span>
+                      <td className="py-4 px-5">
+                        <span className="font-medium text-zinc-200 text-sm">{u.tier}</span>
                       </td>
 
-                      <td className="py-3 px-4 font-semibold text-white num-tabular">
+                      <td className="py-4 px-5 font-mono font-bold text-white text-base num-tabular">
                         {formatBaht(u.balance)}
                       </td>
 
-                      <td className="py-3 px-4 text-slate-400 num-tabular">
+                      <td className="py-4 px-5 font-mono text-zinc-300 text-sm num-tabular">
                         {u.totalOrders} รายการ
                       </td>
 
-                      <td className="py-3 px-4">
+                      <td className="py-4 px-5">
                         {isActive ? (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span className="px-2.5 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                             ปกติ
                           </span>
                         ) : (
-                          <span className="px-2 py-0.5 rounded text-[10px] font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
+                          <span className="px-2.5 py-1 rounded-full text-xs font-mono font-semibold bg-red-500/10 text-red-400 border border-red-500/20">
                             ถูกระงับ
                           </span>
                         )}
                       </td>
 
-                      <td className="py-3 px-4 text-right space-x-1.5 whitespace-nowrap">
+                      <td className="py-4 px-5 text-right space-x-2 whitespace-nowrap">
                         <button
                           type="button"
                           onClick={() => {
                             setBalanceModalUser(u);
                             setAdjustAmount("");
                           }}
-                          className="px-2.5 py-1 rounded bg-white/[0.06] hover:bg-white/[0.1] text-slate-200 text-[11px] font-medium transition-colors cursor-pointer"
+                          className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
                         >
                           ปรับยอดเงิน
                         </button>
@@ -448,10 +589,10 @@ export default function AdminUsersPage() {
                         <button
                           type="button"
                           onClick={() => handleToggleBan(u)}
-                          className={`px-2.5 py-1 rounded text-[11px] font-medium transition-colors cursor-pointer ${
+                          className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-colors cursor-pointer ${
                             isActive
-                              ? "bg-red-500/10 hover:bg-red-500/20 text-red-400"
-                              : "bg-emerald-500/10 hover:bg-emerald-500/20 text-emerald-400"
+                              ? "bg-red-500/15 hover:bg-red-500/25 text-red-400 border border-red-500/30"
+                              : "bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/30"
                           }`}
                         >
                           {isActive ? "ระงับบัญชี" : "ปลดระงับ"}
@@ -464,6 +605,17 @@ export default function AdminUsersPage() {
             </tbody>
           </table>
         </div>
+        <AdminPagination
+          currentPage={currentPage}
+          totalItems={filteredUsers.length}
+          pageSize={pageSize}
+          onPageChange={setCurrentPage}
+          onPageSizeChange={(size) => {
+            setPageSize(size);
+            setCurrentPage(1);
+          }}
+          itemLabel="สมาชิก"
+        />
       </div>
 
       {/* MODAL 1: Balance Adjustment Modal */}
