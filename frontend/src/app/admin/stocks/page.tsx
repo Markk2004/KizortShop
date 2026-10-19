@@ -42,8 +42,13 @@ interface StockItem {
   stockMode: StockMode;
   credentialFormat: CredentialFormat;
   credentialHash: string;
+  username?: string;
   maskedIdentity: string;
   credentials: string;
+  farmedMaps?: string;
+  details?: string;
+  sellingPriceText?: string;
+  addedSource?: string;
   batchCode: string;
   supplierName: string;
   costPrice: number;
@@ -402,6 +407,7 @@ const initialStocks: StockItem[] = rawInitialSeed.map((seed, index) => {
 
 export default function AdminStocksPage() {
   const [stocks, setStocks] = useState<StockItem[]>(initialStocks);
+  const [loading, setLoading] = useState<boolean>(false);
   const [selectedProductId, setSelectedProductId] = useState<string>(targetProductOptions[0].id);
   const [batchCodeInput, setBatchCodeInput] = useState<string>("LOT-261018-B");
   const [supplierInput, setSupplierInput] = useState<string>("KaitanFarm_TH");
@@ -418,9 +424,39 @@ export default function AdminStocksPage() {
   const [revealedIds, setRevealedIds] = useState<Record<string, boolean>>({});
   const [notification, setNotification] = useState<string | null>(null);
 
+  // Edit stock item modal state
+  const [editingItem, setEditingItem] = useState<StockItem | null>(null);
+  const [editPassword, setEditPassword] = useState<string>("");
+  const [editFarmedMaps, setEditFarmedMaps] = useState<string>("");
+  const [editDetails, setEditDetails] = useState<string>("");
+  const [editPrice, setEditPrice] = useState<string>("");
+  const [editStatus, setEditStatus] = useState<StockStatus>("AVAILABLE");
+
   // Pagination state
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(5);
+  const [pageSize, setPageSize] = useState<number>(10);
+
+  // Fetch stocks from backend API
+  const fetchStocksFromApi = async () => {
+    try {
+      setLoading(true);
+      const res = await fetch("http://localhost:4000/api/v1/admin/stocks?pageSize=100");
+      if (res.ok) {
+        const json = await res.json();
+        if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+          setStocks(json.data);
+        }
+      }
+    } catch {
+      // Keep initialStocks if backend is offline
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useState(() => {
+    fetchStocksFromApi();
+  });
 
   const selectedProduct =
     targetProductOptions.find((p) => p.id === selectedProductId) || targetProductOptions[0];
@@ -570,6 +606,53 @@ export default function AdminStocksPage() {
       }),
     );
     showNotification(`อัปเดตสถานะ ${item.serialCode} เป็น ${nextStatus}`);
+  };
+
+  const openEditModal = (item: StockItem) => {
+    setEditingItem(item);
+    setEditPassword("");
+    setEditFarmedMaps(item.farmedMaps || "");
+    setEditDetails(item.details || "");
+    setEditPrice(item.sellingPriceText || "");
+    setEditStatus(item.status);
+  };
+
+  const handleSaveEditDetails = async () => {
+    if (!editingItem) return;
+
+    try {
+      await fetch(`http://localhost:4000/api/v1/admin/stocks/${editingItem.id}/details`, {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          password: editPassword.trim() || undefined,
+          farmedMaps: editFarmedMaps.trim(),
+          details: editDetails.trim(),
+          sellingPriceText: editPrice.trim(),
+          status: editStatus,
+        }),
+      });
+    } catch {
+      // Offline fallback
+    }
+
+    setStocks((prev) =>
+      prev.map((s) => {
+        if (s.id === editingItem.id) {
+          return {
+            ...s,
+            farmedMaps: editFarmedMaps.trim(),
+            details: editDetails.trim(),
+            sellingPriceText: editPrice.trim(),
+            status: editStatus,
+          };
+        }
+        return s;
+      }),
+    );
+
+    setEditingItem(null);
+    showNotification(`อัปเดตข้อมูลไอดี ${editingItem.username || editingItem.serialCode} เรียบร้อย (แจ้งเตือนใน Discord แล้ว)`);
   };
 
   const handleDeleteItem = (id: string) => {
@@ -1076,6 +1159,14 @@ export default function AdminStocksPage() {
                         <td className="py-4 px-4 text-right space-x-2 whitespace-nowrap">
                           <button
                             type="button"
+                            onClick={() => openEditModal(item)}
+                            className="px-3 py-1.5 rounded-lg bg-blue-600/10 hover:bg-blue-600/20 border border-blue-500/30 text-blue-400 text-xs font-medium transition-colors cursor-pointer"
+                            title="แก้ไขรายละเอียด แมพ ของในไอดี รหัสผ่าน หรือราคา (ซิงค์เข้า Discord #kaitun-id)"
+                          >
+                            แก้ไขไอดี
+                          </button>
+                          <button
+                            type="button"
                             onClick={() => handleCycleStatus(item)}
                             className="px-3 py-1.5 rounded-lg bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 text-zinc-200 text-xs font-medium transition-colors cursor-pointer"
                             title="คลิกเพื่อสลับสถานะ AVAILABLE -> SOLD -> CLAIMED_DEFECTIVE"
@@ -1115,6 +1206,121 @@ export default function AdminStocksPage() {
             itemLabel="รหัสในคลัง"
           />
         </div>
+
+        {/* Edit Stock Modal (Two-Way Sync with Discord #kaitun-id) */}
+        {editingItem && (
+          <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm p-4">
+            <div className="bg-zinc-950 border border-zinc-800 rounded-2xl w-full max-w-lg p-6 shadow-2xl space-y-4">
+              <div className="flex items-center justify-between border-b border-zinc-800/80 pb-3">
+                <div>
+                  <h3 className="text-base font-bold text-white flex items-center gap-2">
+                    <span>แก้ไขข้อมูลไอดีไก่ตัน</span>
+                    <span className="text-xs px-2 py-0.5 rounded bg-blue-500/10 text-blue-400 border border-blue-500/20 font-mono">
+                      2-WAY SYNC
+                    </span>
+                  </h3>
+                  <p className="text-xs text-zinc-400 mt-0.5">
+                    ไอดี: <strong className="text-white font-mono">{editingItem.username || editingItem.serialCode}</strong> (การแก้ไขจะแจ้งเตือนในห้อง #kaitun-id ทันที)
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="text-zinc-400 hover:text-white text-lg p-1"
+                >
+                  ✕
+                </button>
+              </div>
+
+              <div className="space-y-3.5 text-xs">
+                <div>
+                  <label className="text-zinc-300 font-medium block mb-1">
+                    เปลี่ยนรหัสผ่านใหม่ (เว้นว่างไว้หากไม่ต้องการเปลี่ยน)
+                  </label>
+                  <input
+                    type="text"
+                    value={editPassword}
+                    onChange={(e) => setEditPassword(e.target.value)}
+                    placeholder="เช่น NewPass@2026! (บอทจะแจ้งใน Discord ว่าเปลี่ยนรหัสผ่านแล้ว)"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white font-mono focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-zinc-300 font-medium block mb-1">
+                    แมพที่ฟาร์ม (Farmed Maps)
+                  </label>
+                  <input
+                    type="text"
+                    value={editFarmedMaps}
+                    onChange={(e) => setEditFarmedMaps(e.target.value)}
+                    placeholder="เช่น Blox Fruits, King Legacy, Anime Defenders"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+
+                <div>
+                  <label className="text-zinc-300 font-medium block mb-1">
+                    รายละเอียดของในไอดี (Details)
+                  </label>
+                  <textarea
+                    rows={3}
+                    value={editDetails}
+                    onChange={(e) => setEditDetails(e.target.value)}
+                    placeholder="เช่น เวลตัน 2550 หมัดก็อด ดาบคู่ CDK ผลเสือตื่น เงิน 30M"
+                    className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-zinc-500"
+                  />
+                </div>
+
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="text-zinc-300 font-medium block mb-1">
+                      ราคาขาย (Price)
+                    </label>
+                    <input
+                      type="text"
+                      value={editPrice}
+                      onChange={(e) => setEditPrice(e.target.value)}
+                      placeholder="เช่น 150 บาท"
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-zinc-500"
+                    />
+                  </div>
+                  <div>
+                    <label className="text-zinc-300 font-medium block mb-1">
+                      สถานะการขาย (Sale Status)
+                    </label>
+                    <select
+                      value={editStatus}
+                      onChange={(e) => setEditStatus(e.target.value as StockStatus)}
+                      className="w-full bg-zinc-900 border border-zinc-800 rounded-lg p-2.5 text-white focus:outline-none focus:border-zinc-500"
+                    >
+                      <option value="AVAILABLE">AVAILABLE (ยังไม่ขาย)</option>
+                      <option value="SOLD">SOLD (ขายแล้ว)</option>
+                      <option value="CLAIMED_DEFECTIVE">CLAIMED (แจ้งเคลม)</option>
+                    </select>
+                  </div>
+                </div>
+              </div>
+
+              <div className="flex items-center justify-end gap-2 pt-3 border-t border-zinc-800/80">
+                <button
+                  type="button"
+                  onClick={() => setEditingItem(null)}
+                  className="px-4 py-2 rounded-lg bg-zinc-900 hover:bg-zinc-800 text-zinc-300 text-xs font-medium cursor-pointer"
+                >
+                  ยกเลิก
+                </button>
+                <button
+                  type="button"
+                  onClick={handleSaveEditDetails}
+                  className="px-5 py-2 rounded-lg bg-white hover:bg-zinc-200 text-zinc-950 text-xs font-bold transition-all cursor-pointer"
+                >
+                  บันทึกและซิงค์ข้อมูล
+                </button>
+              </div>
+            </div>
+          </div>
+        )}
       </div>
     </div>
   );

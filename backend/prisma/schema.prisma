@@ -149,6 +149,11 @@ model AccountStock {
   credentialHash   String           @unique // HMAC-SHA256 ของ normalized username/key เพื่อบล็อกการลงไอดีซ้ำทั้งระบบ
   maskedIdentity   String // เช่น usr_k4*** (ใช้แสดงในตาราง Admin โดยไม่ต้องถอดรหัส AES-256 ทั้งตาราง)
   credentials      String // ข้อมูลลับเข้ารหัส AES-256-GCM (JSON/Delimited ตาม credentialFormat)
+  username         String? // ชื่อผู้ใช้ Roblox (เก็บชัดเจนเพื่อค้นหาได้ทั้งจาก Discord และ Web)
+  cookie           String? // Cookie สำหรับเข้าสู่ระบบ (ถ้ามี)
+  sellingPriceText String? // ราคาขายที่ระบุจาก Discord (เช่น 150 บาท)
+  addedSource      String           @default("WEB") // WEB หรือ DISCORD
+  addedByDiscordId String? // Discord User ID ของผู้เพิ่ม
   farmedMaps       String? // แมพที่ฟาร์ม (รองรับเชื่อมต่อข้อมูลจากระบบ Kaitun Bot)
   details          String? // รายละเอียดของในไอดี
   batchCode        String? // รหัสล็อตนำเข้า เช่น LOT-20261018-A
@@ -163,6 +168,7 @@ model AccountStock {
   updatedAt        DateTime         @updatedAt
 
   @@index([productId, status, createdAt])
+  @@index([username])
   @@index([batchCode])
   @@index([status])
 }
@@ -245,4 +251,18 @@ model AuditLog {
 
   @@index([action, createdAt])
   @@index([actorId, createdAt])
+}
+
+model WebhookChannelConfig {
+  id          String   @id @default(uuid())
+  channelKey  String   @unique // kaitun_sync, orders, topups, stocks, catalog, members, tickets_audit
+  channelName String // เช่น #kaitun-id, #web-orders
+  channelId   String? // Discord Channel ID
+  webhookUrl  String // Discord Webhook URL
+  isActive    Boolean  @default(true)
+  description String?
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([channelKey, isActive])
 }

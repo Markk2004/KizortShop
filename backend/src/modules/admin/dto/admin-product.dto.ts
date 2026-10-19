@@ -42,6 +42,16 @@ export class UpdateStockStatusDto {
   orderNumber?: string;
 }
 
+export class UpdateStockItemDto {
+  password?: string;
+  farmedMaps?: string;
+  details?: string;
+  sellingPriceText?: string;
+  status?: StockStatus;
+  productId?: string;
+  defectReason?: string;
+}
+
 export class UpdateRobuxStatusDto {
   status: "AVAILABLE" | "OUT_OF_STOCK";
   stockCount?: number;

@@ -125,6 +125,15 @@ async function main() {
       badge: 'INSTANT',
       sortOrder: 4,
     },
+    {
+      name: 'คลังไก่ตันรอจัดหมวด (Discord Vault)',
+      slug: 'kaitun-vault',
+      description: 'คลังพักสต๊อกกลางสำหรับไอดีที่ส่งผ่านห้อง #kaitun-id ก่อนจัดแพ็กเกจขึ้นหน้าร้าน',
+      image: '/assets/blox_fruits_category.jpg',
+      badge: 'VAULT',
+      sortOrder: 99,
+      isActive: false,
+    },
   ];
 
   const categoryMap: Record<string, string> = {};
@@ -137,6 +146,7 @@ async function main() {
         image: cat.image,
         badge: cat.badge,
         sortOrder: cat.sortOrder,
+        isActive: cat.isActive !== undefined ? cat.isActive : true,
       },
       create: cat,
     });
@@ -146,6 +156,21 @@ async function main() {
 
   // 4. Upsert Products
   const productsData = [
+    {
+      code: 'KAITUN-VAULT-POOL',
+      title: '[คลังพักสต๊อก] ไอดีไก่ตันรอจัดหมวดหมู่',
+      description: 'แพ็กเกจกลางสำหรับรับข้อมูลไอดีอัตโนมัติจากห้อง #kaitun-id ใน Discord (ไม่แสดงหน้าร้านจนกว่าจะเลือกผูกสินค้า)',
+      price: 0.00,
+      originalPrice: null,
+      badge: 'VAULT',
+      image: '/assets/blox_fruits_category.jpg',
+      stockMode: StockMode.POOL,
+      credentialFormat: CredentialFormat.USER_PASS,
+      isFeatured: false,
+      isActive: false,
+      sortOrder: 999,
+      categoryId: categoryMap['kaitun-vault'],
+    },
     {
       code: 'BF-GH-CDK-01',
       title: 'ไก่ตัน Godhuman + ดาบคู่ CDK + กีตาร์บรู๊ค (การันตี Lv.2550)',

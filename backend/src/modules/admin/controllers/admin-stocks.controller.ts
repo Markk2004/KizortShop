@@ -7,9 +7,17 @@ import {
   Param,
   Patch,
   Post,
+  Put,
   Query,
 } from "@nestjs/common";
-import { AddStockBatchDto, StockStatus, UpdateStockStatusDto } from "../dto/admin-product.dto";
+import { PrismaService } from "../../../common/prisma/prisma.service";
+import { DiscordWebhookService } from "../../../common/webhook/discord-webhook.service";
+import {
+  AddStockBatchDto,
+  StockStatus,
+  UpdateStockStatusDto,
+  UpdateStockItemDto,
+} from "../dto/admin-product.dto";
 import {
   decryptCredentialAes256Gcm,
   encryptCredentialAes256Gcm,
@@ -17,107 +25,103 @@ import {
   CredentialFormat,
 } from "../../../common/crypto/stock-crypto.util";
 
-interface StockRecord {
-  id: string;
-  serialCode: string;
-  productId: string;
-  productCode: string;
-  credentialFormat: CredentialFormat;
-  credentialHash: string;
-  maskedIdentity: string;
-  encryptedCredentials: string;
-  batchCode: string;
-  supplierName: string;
-  costPrice: number;
-  defectReason?: string;
-  status: StockStatus;
-  importedAt: string;
-  orderNumber?: string;
-}
-
-// In-memory mock store for demo & test runtime (backed by Prisma in production)
-const vaultStore: StockRecord[] = [
-  {
-    id: "stk_01",
-    serialCode: "STK-BFV4-261018-0001",
-    productId: "prod_01",
-    productCode: "BF-V4-MAX-01",
-    credentialFormat: "USER_PASS",
-    credentialHash: inspectAndHashCredential("bf_cyborg99:P@ssword2026", "USER_PASS").credentialHash,
-    maskedIdentity: "bf_c***",
-    encryptedCredentials: encryptCredentialAes256Gcm("bf_cyborg99:P@ssword2026", "secret-2026"),
-    batchCode: "LOT-261018-A",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 190,
-    status: "AVAILABLE",
-    importedAt: "2026-10-18 11:20",
-  },
-  {
-    id: "stk_02",
-    serialCode: "STK-UNQKIT-261017-0006",
-    productId: "prod_04",
-    productCode: "UNQ-KITSUNE-04",
-    credentialFormat: "USER_PASS_2FA",
-    credentialHash: inspectAndHashCredential("kitsune_lord01:FoxFire@999:BACKUP-8821", "USER_PASS_2FA").credentialHash,
-    maskedIdentity: "kits***",
-    encryptedCredentials: encryptCredentialAes256Gcm("kitsune_lord01:FoxFire@999:BACKUP-8821", "secret-2026"),
-    batchCode: "LOT-261017-VIP",
-    supplierName: "Vanguard_Collector",
-    costPrice: 620,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 22:15",
-  },
-];
-
 @Controller("admin/stocks")
 export class AdminStocksController {
+  private readonly encryptionSecret =
+    process.env.STOCK_ENCRYPTION_SECRET || "kz_store_aes256_gcm_stock_vault_secret_2026";
+
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly discordWebhook: DiscordWebhookService,
+  ) {}
+
   @Get()
   async listStocks(
     @Query("page") page: string = "1",
-    @Query("pageSize") pageSize: string = "5",
+    @Query("pageSize") pageSize: string = "10",
     @Query("status") status?: string,
     @Query("search") search?: string,
   ) {
     const p = Math.max(1, parseInt(page, 10) || 1);
-    const size = Math.max(1, parseInt(pageSize, 10) || 5);
+    const size = Math.max(1, parseInt(pageSize, 10) || 10);
 
-    let filtered = [...vaultStore];
+    const where: any = {};
     if (status && status !== "ALL") {
-      filtered = filtered.filter((s) => s.status === status);
+      where.status = status;
     }
     if (search && search.trim()) {
-      const q = search.toLowerCase();
-      filtered = filtered.filter(
-        (s) =>
-          s.serialCode.toLowerCase().includes(q) ||
-          s.productCode.toLowerCase().includes(q) ||
-          s.batchCode.toLowerCase().includes(q) ||
-          s.supplierName.toLowerCase().includes(q) ||
-          s.maskedIdentity.toLowerCase().includes(q),
-      );
+      const q = search.trim();
+      where.OR = [
+        { serialCode: { contains: q, mode: "insensitive" } },
+        { username: { contains: q, mode: "insensitive" } },
+        { maskedIdentity: { contains: q, mode: "insensitive" } },
+        { farmedMaps: { contains: q, mode: "insensitive" } },
+        { details: { contains: q, mode: "insensitive" } },
+        { batchCode: { contains: q, mode: "insensitive" } },
+        { supplierName: { contains: q, mode: "insensitive" } },
+        { product: { code: { contains: q, mode: "insensitive" } } },
+        { product: { title: { contains: q, mode: "insensitive" } } },
+      ];
     }
 
-    const total = filtered.length;
-    const startIndex = (p - 1) * size;
-    const data = filtered.slice(startIndex, startIndex + size).map((s) => ({
+    const [total, items, counts] = await Promise.all([
+      this.prisma.accountStock.count({ where }),
+      this.prisma.accountStock.findMany({
+        where,
+        skip: (p - 1) * size,
+        take: size,
+        orderBy: { createdAt: "desc" },
+        include: {
+          product: {
+            select: {
+              id: true,
+              code: true,
+              title: true,
+              price: true,
+              stockMode: true,
+            },
+          },
+          order: {
+            select: {
+              orderNumber: true,
+            },
+          },
+        },
+      }),
+      Promise.all([
+        this.prisma.accountStock.count({ where: { status: "AVAILABLE" } }),
+        this.prisma.accountStock.count({ where: { status: "SOLD" } }),
+        this.prisma.accountStock.count({ where: { status: "CLAIMED_DEFECTIVE" } }),
+        this.prisma.accountStock.count(),
+      ]),
+    ]);
+
+    const data = items.map((s) => ({
       id: s.id,
       serialCode: s.serialCode,
       productId: s.productId,
-      productCode: s.productCode,
+      productCode: s.product.code,
+      productTitle: s.product.title,
+      stockMode: s.product.stockMode,
+      username: s.username || s.maskedIdentity,
+      maskedIdentity: s.maskedIdentity,
       credentialFormat: s.credentialFormat,
       credentialHash: s.credentialHash,
-      maskedIdentity: s.maskedIdentity,
+      farmedMaps: s.farmedMaps || "",
+      details: s.details || "",
+      sellingPriceText: s.sellingPriceText || (s.product.price ? `${s.product.price} บาท` : ""),
+      addedSource: s.addedSource,
       batchCode: s.batchCode,
       supplierName: s.supplierName,
-      costPrice: s.costPrice,
+      costPrice: s.costPrice ? Number(s.costPrice) : 0,
       status: s.status,
       defectReason: s.defectReason,
-      importedAt: s.importedAt,
-      orderNumber: s.orderNumber,
+      importedAt: s.createdAt.toISOString(),
+      orderNumber: s.order?.orderNumber,
     }));
 
     return {
-      message: "Stock vault items retrieved",
+      message: "Stock vault items retrieved from Supabase",
       data,
       pagination: {
         currentPage: p,
@@ -126,10 +130,10 @@ export class AdminStocksController {
         totalPages: Math.max(1, Math.ceil(total / size)),
       },
       counts: {
-        available: vaultStore.filter((s) => s.status === "AVAILABLE").length,
-        sold: vaultStore.filter((s) => s.status === "SOLD").length,
-        claimed: vaultStore.filter((s) => s.status === "CLAIMED_DEFECTIVE").length,
-        total: vaultStore.length,
+        available: counts[0],
+        sold: counts[1],
+        claimed: counts[2],
+        total: counts[3],
       },
     };
   }
@@ -143,52 +147,57 @@ export class AdminStocksController {
       throw new BadRequestException("At least 1 credential line is required");
     }
 
+    const product = await this.prisma.product.findUnique({
+      where: { id: dto.productId },
+    });
+    if (!product) {
+      throw new NotFoundException(`Product ${dto.productId} not found`);
+    }
+
     const errors: string[] = [];
-    const expectedFormat: CredentialFormat =
-      dto.productCode && dto.productCode.startsWith("UNQ-") ? "USER_PASS_2FA" : "USER_PASS";
+    const expectedFormat = product.credentialFormat;
+    const preparedRecords: any[] = [];
 
-    const preparedRecords: StockRecord[] = [];
-    const nowStr = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
-
-    dto.credentials.forEach((rawLine, idx) => {
+    for (let idx = 0; idx < dto.credentials.length; idx++) {
+      const rawLine = dto.credentials[idx];
       const lineNum = idx + 1;
-      const inspection = inspectAndHashCredential(rawLine, expectedFormat);
+      const inspection = inspectAndHashCredential(rawLine, expectedFormat, this.encryptionSecret);
       if (!inspection.isValid) {
         errors.push(`บรรทัดที่ ${lineNum}: ${inspection.error}`);
-        return;
+        continue;
       }
 
-      // Check duplicate hash against in-memory vault
-      const existing = vaultStore.find((s) => s.credentialHash === inspection.credentialHash);
+      // Check duplicate hash
+      const existing = await this.prisma.accountStock.findUnique({
+        where: { credentialHash: inspection.credentialHash },
+      });
       if (existing && !dto.allowRestockOverride) {
         errors.push(
-          `บรรทัดที่ ${lineNum}: ตรวจพบรหัสซ้ำระดับ Global Hash (${inspection.credentialHash.slice(
-            0,
-            12,
-          )}) กับสต็อก ${existing.serialCode} [สถานะ: ${existing.status}]`,
+          `บรรทัดที่ ${lineNum}: ตรวจพบรหัสซ้ำระดับ Global Hash กับสต็อก ${existing.serialCode} [สถานะ: ${existing.status}]`,
         );
-        return;
+        continue;
       }
 
-      const seqNum = String(vaultStore.length + preparedRecords.length + 1).padStart(4, "0");
-      const skuTag = (dto.productCode || "SKU").replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase();
+      const rawParts = rawLine.trim().split(":");
+      const rawUsername = rawParts[0]?.trim();
+      const seqNum = String(Date.now() + idx).slice(-6);
+      const skuTag = product.code.replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase();
 
       preparedRecords.push({
-        id: `stk_${Date.now()}_${idx}`,
-        serialCode: `STK-${skuTag}-261018-${seqNum}`,
+        serialCode: `STK-${skuTag}-${seqNum}`,
         productId: dto.productId,
-        productCode: dto.productCode || "SKU-PROD",
         credentialFormat: expectedFormat,
         credentialHash: inspection.credentialHash,
         maskedIdentity: inspection.maskedIdentity,
-        encryptedCredentials: encryptCredentialAes256Gcm(rawLine, "secret-2026"),
+        credentials: encryptCredentialAes256Gcm(rawLine, this.encryptionSecret),
+        username: rawUsername,
         batchCode: dto.batchCode || "LOT-DEFAULT",
         supplierName: dto.supplierName || "Direct_Import",
         costPrice: dto.costPrice || 0,
+        addedSource: "WEB",
         status: "AVAILABLE",
-        importedAt: nowStr,
       });
-    });
+    }
 
     if (errors.length > 0) {
       throw new BadRequestException({
@@ -197,10 +206,25 @@ export class AdminStocksController {
       });
     }
 
-    vaultStore.unshift(...preparedRecords);
+    // Insert into Supabase
+    for (const record of preparedRecords) {
+      await this.prisma.accountStock.upsert({
+        where: { credentialHash: record.credentialHash },
+        update: record,
+        create: record,
+      });
+    }
+
+    // Notify Discord #web-stock-logs and #kaitun-id
+    await this.discordWebhook.notifyStockImport({
+      count: preparedRecords.length,
+      productTitle: product.title,
+      batchCode: dto.batchCode,
+      supplierName: dto.supplierName,
+    });
 
     return {
-      message: `Successfully validated & stored ${preparedRecords.length} accounts into AES-256 Vault`,
+      message: `Successfully validated & stored ${preparedRecords.length} accounts into Supabase Vault`,
       importedCount: preparedRecords.length,
       serials: preparedRecords.map((r) => r.serialCode),
     };
@@ -208,33 +232,135 @@ export class AdminStocksController {
 
   @Patch(":id/status")
   async updateStatus(@Param("id") id: string, @Body() dto: UpdateStockStatusDto) {
-    const item = vaultStore.find((s) => s.id === id || s.serialCode === id);
+    const item = await this.prisma.accountStock.findFirst({
+      where: { OR: [{ id }, { serialCode: id }] },
+      include: { product: true },
+    });
     if (!item) {
       throw new NotFoundException(`Stock item ${id} not found`);
     }
 
-    item.status = dto.status;
-    if (dto.defectReason) {
-      item.defectReason = dto.defectReason;
-    }
-    if (dto.orderNumber) {
-      item.orderNumber = dto.orderNumber;
+    const updated = await this.prisma.accountStock.update({
+      where: { id: item.id },
+      data: {
+        status: dto.status,
+        defectReason: dto.defectReason || item.defectReason,
+        soldAt: dto.status === "SOLD" ? new Date() : null,
+      },
+    });
+
+    // 2-Way Sync Notification to Discord #kaitun-id
+    if (item.username) {
+      await this.discordWebhook.notifyKaitunSync(dto.status === "SOLD" ? "SOLD" : "AVAILABLE", {
+        username: item.username,
+        details: item.details || "",
+        farmedMaps: item.farmedMaps || "",
+        price: item.sellingPriceText || (item.product ? `${item.product.price} บาท` : ""),
+        actor: "Admin Web Panel",
+      });
     }
 
     return {
-      message: `Stock ${item.serialCode} updated to ${item.status}`,
-      data: item,
+      message: `Stock ${item.serialCode} updated to ${updated.status}`,
+      data: updated,
+    };
+  }
+
+  @Put(":id/details")
+  async updateDetails(@Param("id") id: string, @Body() dto: UpdateStockItemDto) {
+    const item = await this.prisma.accountStock.findFirst({
+      where: { OR: [{ id }, { serialCode: id }] },
+      include: { product: true },
+    });
+    if (!item) {
+      throw new NotFoundException(`Stock item ${id} not found`);
+    }
+
+    const dataToUpdate: any = {};
+    let passwordChanged = false;
+
+    if (dto.password && dto.password.trim()) {
+      const u = item.username || item.maskedIdentity;
+      const newRaw = `${u}:${dto.password.trim()}`;
+      dataToUpdate.credentials = encryptCredentialAes256Gcm(newRaw, this.encryptionSecret);
+      passwordChanged = true;
+    }
+    if (dto.farmedMaps !== undefined) dataToUpdate.farmedMaps = dto.farmedMaps;
+    if (dto.details !== undefined) dataToUpdate.details = dto.details;
+    if (dto.sellingPriceText !== undefined) dataToUpdate.sellingPriceText = dto.sellingPriceText;
+    if (dto.status !== undefined) {
+      dataToUpdate.status = dto.status;
+      if (dto.status === "SOLD") dataToUpdate.soldAt = new Date();
+    }
+    if (dto.productId) dataToUpdate.productId = dto.productId;
+    if (dto.defectReason !== undefined) dataToUpdate.defectReason = dto.defectReason;
+
+    const updated = await this.prisma.accountStock.update({
+      where: { id: item.id },
+      data: dataToUpdate,
+      include: { product: true },
+    });
+
+    // 2-Way Sync Notification to Discord #kaitun-id
+    if (updated.username) {
+      const actionType = passwordChanged
+        ? "PASSWORD_UPDATED"
+        : updated.status === "SOLD"
+        ? "SOLD"
+        : "DETAILS_UPDATED";
+
+      await this.discordWebhook.notifyKaitunSync(actionType, {
+        username: updated.username,
+        details: updated.details || "",
+        farmedMaps: updated.farmedMaps || "",
+        price: updated.sellingPriceText || (updated.product ? `${updated.product.price} บาท` : ""),
+        actor: "Admin Web Panel",
+      });
+    }
+
+    return {
+      message: `Stock ${item.serialCode} details updated successfully`,
+      data: updated,
     };
   }
 
   @Post(":id/reveal")
   async revealCredential(@Param("id") id: string) {
-    const item = vaultStore.find((s) => s.id === id || s.serialCode === id);
+    const item = await this.prisma.accountStock.findFirst({
+      where: { OR: [{ id }, { serialCode: id }] },
+      include: { product: true },
+    });
     if (!item) {
       throw new NotFoundException(`Stock item ${id} not found`);
     }
 
-    const decrypted = decryptCredentialAes256Gcm(item.encryptedCredentials, "secret-2026");
+    let decrypted = "";
+    try {
+      decrypted = decryptCredentialAes256Gcm(item.credentials, this.encryptionSecret);
+    } catch {
+      decrypted = item.credentials;
+    }
+
+    // Record Security AuditLog in Supabase
+    await this.prisma.auditLog.create({
+      data: {
+        action: "REVEAL_STOCK_CREDENTIAL",
+        targetType: "STOCK",
+        targetId: item.id,
+        metadata: {
+          serialCode: item.serialCode,
+          username: item.username,
+        },
+      },
+    });
+
+    // Notify Discord #web-tickets-audit
+    await this.discordWebhook.notifySecurityAudit({
+      action: "มีการเปิดดูรหัสผ่านจริง (Reveal Credential)",
+      actor: "Web Admin",
+      target: `Serial: ${item.serialCode} (${item.username || item.maskedIdentity})`,
+    });
+
     return {
       message: "Credential decrypted successfully for audit",
       serialCode: item.serialCode,
