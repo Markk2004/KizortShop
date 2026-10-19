@@ -38,3 +38,20 @@ Thumbs.db
 # Backups
 *.backup
 *.git_backup
+
+# Python & Discord Bot
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+.venv/
+env/
+venv/
+ENV/
+.pytest_cache/
+*.sqlite3
+discord-bot/data/*
+!discord-bot/data/.gitkeep
+discord-bot/test_crop.png
+

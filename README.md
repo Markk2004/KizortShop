@@ -46,6 +46,11 @@ kaitan-store/
 └── backend/                         # โครงสร้าง NestJS แยกตามโดเมน (Module-per-Domain)
     ├── README.md                    # รายละเอียดคลาส Controller / Service / Repository ของแต่ละโมดูล
     └── src/modules/                 # auth, users, categories, products, orders, wallet, payments, reviews, tickets, stats
+├── discord-bot/                     # Discord Bot (Ticket System, Modal, Supabase Stock Sync, Audit Log)
+    ├── bot.py                       # Client, Slash Commands, Ticket Desk, Channel Guides
+    ├── ticket_service.py            # จัดการ Lifecycle ของตั๋วและการสร้าง Transcript
+    ├── kaitun_service.py            # จัดการคลังสต็อกไอดีไก่ตัน 2 ทาง
+    └── tests/                       # Pytest Unit Test Suite (34 tests)
 ```
 
 ---
