@@ -154,22 +154,6 @@ export function HeroSection() {
       <div className="absolute inset-0 bg-gradient-to-r from-obsidian-950 via-obsidian-950/90 to-obsidian-950/20 pointer-events-none" />
       <div className="absolute inset-0 bg-gradient-to-t from-obsidian-950 via-transparent to-transparent pointer-events-none" />
 
-      {/* Top Right Y2K KZ Monogram Watermark */}
-      <div className="hidden lg:flex items-center gap-3 absolute top-8 right-10 z-10 px-3 py-2 rounded-md bg-obsidian-950/90 border border-zinc-800">
-        <img
-          src={siteConfig.logo}
-          alt="KaiZort Y2K Monogram"
-          className="w-9 h-9 rounded-sm object-cover border border-zinc-700"
-        />
-        <div className="text-left">
-          <span className="text-xs font-bold tracking-wider text-white font-display block">
-            KAIZORT // KZ
-          </span>
-          <span className="text-[10px] font-mono text-emerald-400 block">
-            VERIFIED VAULT 24/7
-          </span>
-        </div>
-      </div>
 
       {/* Main Slide Content */}
       <div className="max-w-2xl space-y-4 relative z-10">
