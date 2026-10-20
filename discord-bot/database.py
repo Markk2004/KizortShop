@@ -88,21 +88,24 @@ class Database:
             os.makedirs(directory, exist_ok=True)
 
     def _get_default_product_id(self) -> str:
-        if self._default_product_id:
-            return self._default_product_id
         try:
             resp = requests.get(
-                f"{SUPABASE_URL}/rest/v1/Product?code=eq.KAITUN-VAULT-POOL&select=id,code",
+                f"{SUPABASE_URL}/rest/v1/Product?select=id,code&order=createdAt.desc&limit=10",
                 headers=self._supabase_headers,
                 timeout=5
             )
             if resp.status_code == 200 and resp.json():
-                self._default_product_id = resp.json()[0]["id"]
+                rows = resp.json()
+                for r in rows:
+                    if r.get("code") != "KAITUN-VAULT-POOL":
+                        self._default_product_id = r["id"]
+                        return self._default_product_id
+                self._default_product_id = rows[0]["id"]
                 return self._default_product_id
         except Exception as e:
-            logger.error("Failed to fetch KAITUN-VAULT-POOL product from Supabase: %s", e)
+            logger.error("Failed to fetch default product from Supabase: %s", e)
 
-        return "cf3796f8-fe79-4695-9599-ffefb16425d4"
+        return self._default_product_id or "9156b43e-ff6b-499d-b5cc-550f0a2b035d"
 
     def initialize(self) -> None:
         conn = self.connection
@@ -259,8 +262,12 @@ class Database:
     def _map_stock_row(self, row: Dict[str, Any]) -> Dict[str, Any]:
         """Convert Supabase AccountStock row into kaitun_account dict format"""
         decrypted_raw = decrypt_credential(row.get("credentials", ""))
-        parts = decrypted_raw.split(":")
-        username = row.get("username") or parts[0]
+        parts = (
+            [p.strip() for p in decrypted_raw.split("|")]
+            if "|" in decrypted_raw
+            else [p.strip() for p in decrypted_raw.split(":")]
+        )
+        username = row.get("username") or (parts[0] if parts else "")
         password = parts[1] if len(parts) >= 2 else ""
 
         sale_status = "sold" if row.get("status") == "SOLD" else "unsold"
@@ -392,12 +399,15 @@ class Database:
             if resp.status_code in (200, 201):
                 logger.info("Successfully created kaitun account on Supabase: '%s'", username)
                 return "created", None
-            else:
-                logger.warning("Supabase returned %s: %s", resp.status_code, resp.text)
+            elif resp.status_code == 409 and ("credentialHash" in resp.text or "duplicate" in resp.text.lower()):
+                logger.warning("Supabase duplicate hash for account '%s': %s", username, resp.text)
                 return "duplicate", None
+            else:
+                logger.error("Supabase returned %s: %s", resp.status_code, resp.text)
+                return "failed", None
         except Exception as e:
             logger.error("Supabase insert error: %s", e)
-            return "duplicate", None
+            return "failed", None
 
     def add_kaitun_account(
         self,
@@ -445,6 +455,67 @@ class Database:
         except Exception as e:
             logger.error("Error getting stats from Supabase: %s", e)
             return {"available": 0, "used": 0, "sold": 0, "total": 0}
+
+    def get_financial_stats(self) -> Dict[str, Any]:
+        if self._is_test_env:
+            return {
+                "total_revenue": 0.0,
+                "total_cost": 0.0,
+                "net_profit": 0.0,
+                "profit_margin": 100.0,
+                "inventory_value": 0.0,
+                "sold_count": 0,
+                "available_count": 0,
+            }
+
+        try:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/AccountStock?select=id,status,costPrice,sellingPriceText,farmedMaps",
+                headers=self._supabase_headers,
+                timeout=5
+            )
+            if resp.status_code != 200:
+                return {}
+            items = resp.json()
+
+            total_revenue = 0.0
+            total_cost = 0.0
+            sold_count = 0
+            available_count = 0
+            inventory_value = 0.0
+
+            import re
+
+            for it in items:
+                status = it.get("status")
+                cost = float(it.get("costPrice") or 0.0)
+                raw_price = it.get("sellingPriceText") or ""
+                nums = re.findall(r"[\d.]+", raw_price)
+                price = float(nums[0]) if nums else 0.0
+
+                if status == "SOLD":
+                    sold_count += 1
+                    total_revenue += price
+                    total_cost += cost
+                elif status == "AVAILABLE":
+                    available_count += 1
+                    inventory_value += price
+
+            net_profit = total_revenue - total_cost
+            margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 100.0
+
+            return {
+                "total_revenue": total_revenue,
+                "total_cost": total_cost,
+                "net_profit": net_profit,
+                "profit_margin": round(margin, 1),
+                "inventory_value": inventory_value,
+                "sold_count": sold_count,
+                "available_count": available_count,
+            }
+        except Exception as e:
+            logger.error("Error getting financial stats: %s", e)
+            return {}
 
     def dispense_kaitun(self, count: int, user_id: int) -> List[Dict[str, Any]]:
         if self._is_test_env:
@@ -534,7 +605,13 @@ class Database:
                 data=json.dumps(patch_data),
                 timeout=5
             )
-            return resp.status_code in (200, 204)
+            success = resp.status_code in (200, 204)
+            if success:
+                try:
+                    self._local_update(username, password, farmed_maps, details, sale_status, price)
+                except Exception:
+                    pass
+            return success
         except Exception as e:
             logger.error("Error updating account on Supabase: %s", e)
             return False
@@ -563,6 +640,29 @@ class Database:
         except Exception as e:
             logger.error("Error listing accounts from Supabase: %s", e)
         return []
+
+    def delete_kaitun_account(self, username: str) -> bool:
+        if self._is_test_env:
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute("DELETE FROM kaitun_accounts WHERE username = ? COLLATE NOCASE", (username.strip(),))
+                conn.commit()
+                return cur.rowcount > 0
+
+        acc = self.get_kaitun_account(username)
+        if not acc:
+            return False
+
+        try:
+            resp = requests.delete(
+                f"{SUPABASE_URL}/rest/v1/AccountStock?id=eq.{acc['id']}",
+                headers=self._supabase_headers,
+                timeout=5
+            )
+            return resp.status_code in (200, 204)
+        except Exception as e:
+            logger.error("Error deleting account from Supabase: %s", e)
+            return False
 
     def close(self) -> None:
         if self._connection is not None:

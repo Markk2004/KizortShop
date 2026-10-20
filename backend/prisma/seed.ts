@@ -157,21 +157,6 @@ async function main() {
   // 4. Upsert Products
   const productsData = [
     {
-      code: 'KAITUN-VAULT-POOL',
-      title: '[คลังพักสต๊อก] ไอดีไก่ตันรอจัดหมวดหมู่',
-      description: 'แพ็กเกจกลางสำหรับรับข้อมูลไอดีอัตโนมัติจากห้อง #kaitun-id ใน Discord (ไม่แสดงหน้าร้านจนกว่าจะเลือกผูกสินค้า)',
-      price: 0.00,
-      originalPrice: null,
-      badge: 'VAULT',
-      image: '/assets/blox_fruits_category.jpg',
-      stockMode: StockMode.POOL,
-      credentialFormat: CredentialFormat.USER_PASS,
-      isFeatured: false,
-      isActive: false,
-      sortOrder: 999,
-      categoryId: categoryMap['kaitun-vault'],
-    },
-    {
       code: 'BF-GH-CDK-01',
       title: 'ไก่ตัน Godhuman + ดาบคู่ CDK + กีตาร์บรู๊ค (การันตี Lv.2550)',
       description: 'เลเวลตัน 2550 หมัด Godhuman ดาบคู่ Cursed Dual Katana ปืน Soul Guitar สุ่มผลไม้ Mythical ในคลัง ไม่ติดเมลพร้อมเปลี่ยนรหัสทันที',
