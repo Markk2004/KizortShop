@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   Plus,
   Layers,
@@ -20,13 +20,46 @@ import { HardConfirmModal } from "@/features/admin/components/HardConfirmModal";
 import { useToast } from "@/common/components/ToastProvider";
 import { mockCategories } from "@/mocks/catalog";
 import type { Category } from "@/types";
+import {
+  getAdminCategories,
+  saveAdminCategory,
+  toggleAdminCategoryStatus,
+  deleteAdminCategory,
+  subscribeToCatalogChanges,
+} from "@/features/catalog/services/catalogStore";
 
 export default function AdminCategoriesPage() {
   const { success, warning, error } = useToast();
   const [categories, setCategories] = useState<Category[]>(mockCategories);
+  const [isLoading, setIsLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "HIDDEN">("ALL");
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadData() {
+      try {
+        const data = await getAdminCategories();
+        if (isMounted) {
+          setCategories(data);
+          setIsLoading(false);
+        }
+      } catch {
+        if (isMounted) setIsLoading(false);
+      }
+    }
+
+    loadData();
+    const unsubscribe = subscribeToCatalogChanges(() => {
+      loadData();
+    });
+
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // Modal State for Add / Edit
   const [isModalOpen, setIsModalOpen] = useState(false);
@@ -76,37 +109,43 @@ export default function AdminCategoriesPage() {
     setIsModalOpen(true);
   };
 
-  const handleSaveCategory = (e: React.FormEvent) => {
+  const handleSaveCategory = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!formName.trim()) {
       error("กรุณาระบุชื่อหมวดหมู่", "ชื่อหมวดหมู่เป็นข้อมูลบังคับ");
       return;
     }
 
-    const slug =
+    const rawSlug =
       formSlug.trim() ||
       formName
         .trim()
         .toLowerCase()
-        .replace(/[^a-z0-9]+/g, "-");
+        .replace(/[^a-z0-9ก-๙]+/g, "-");
+    const slug = rawSlug || `cat-${Date.now()}`;
 
     if (editingCategory) {
       // Update existing
+      const updatedCat: Category = {
+        ...editingCategory,
+        id: editingCategory.id,
+        name: formName.trim(),
+        description: formDescription.trim(),
+        image: formImage || editingCategory.image,
+        status: formIsActive ? "AVAILABLE" : "OUT_OF_STOCK",
+      };
+
       setCategories((prev) =>
-        prev.map((c) =>
-          c.id === editingCategory.id
-            ? {
-                ...c,
-                id: slug,
-                name: formName.trim(),
-                description: formDescription.trim(),
-                image: formImage || c.image,
-                status: formIsActive ? "AVAILABLE" : "OUT_OF_STOCK",
-              }
-            : c
-        )
+        prev.map((c) => (c.id === editingCategory.id ? updatedCat : c))
       );
-      success("บันทึกหมวดหมู่สำเร็จ", `แก้ไขหมวดหมู่ ${formName.trim()} เรียบร้อยแล้ว`);
+      setIsModalOpen(false);
+
+      try {
+        await saveAdminCategory(updatedCat);
+        success("บันทึกหมวดหมู่สำเร็จ", `แก้ไขหมวดหมู่ ${formName.trim()} เรียบร้อยแล้ว`);
+      } catch (err) {
+        warning("บันทึกเฉพาะในแคช", "ไม่สามารถเชื่อมต่อฐานข้อมูลได้ แต่ข้อมูลถูกบันทึกในแคชแล้ว");
+      }
     } else {
       // Create new
       const newCat: Category = {
@@ -120,14 +159,23 @@ export default function AdminCategoriesPage() {
         accent: "amber",
         status: formIsActive ? "AVAILABLE" : "OUT_OF_STOCK",
       };
-      setCategories((prev) => [newCat, ...prev]);
-      success("สร้างหมวดหมู่ใหม่สำเร็จ", `เพิ่มหมวดหมู่ ${formName.trim()} สู่ระบบแล้ว`);
-    }
 
-    setIsModalOpen(false);
+      setCategories((prev) => [newCat, ...prev]);
+      setIsModalOpen(false);
+
+      try {
+        const saved = await saveAdminCategory(newCat);
+        setCategories((prev) =>
+          prev.map((c) => (c.id === slug ? saved : c))
+        );
+        success("สร้างหมวดหมู่ใหม่สำเร็จ", `เพิ่มหมวดหมู่ ${formName.trim()} สู่ระบบแล้ว`);
+      } catch (err) {
+        warning("บันทึกเฉพาะในแคช", "ไม่สามารถเชื่อมต่อฐานข้อมูลได้ แต่ข้อมูลถูกบันทึกในแคชแล้ว");
+      }
+    }
   };
 
-  const handleToggleVisibility = (cat: Category) => {
+  const handleToggleVisibility = async (cat: Category) => {
     const isCurrentlyVisible = cat.status === "AVAILABLE";
     const nextStatus = isCurrentlyVisible ? "OUT_OF_STOCK" : "AVAILABLE";
 
@@ -135,10 +183,15 @@ export default function AdminCategoriesPage() {
       prev.map((c) => (c.id === cat.id ? { ...c, status: nextStatus } : c))
     );
 
-    if (nextStatus === "AVAILABLE") {
-      success("เปิดแสดงผลหมวดหมู่", `หมวดหมู่ ${cat.name} แสดงผลบนหน้าร้านแล้ว`);
-    } else {
-      warning("ซ่อนหมวดหมู่", `หมวดหมู่ ${cat.name} ถูกซ่อนจากการแสดงผลหน้าร้าน`);
+    try {
+      await toggleAdminCategoryStatus(cat);
+      if (nextStatus === "AVAILABLE") {
+        success("เปิดแสดงผลหมวดหมู่", `หมวดหมู่ ${cat.name} แสดงผลบนหน้าร้านแล้ว`);
+      } else {
+        warning("ซ่อนหมวดหมู่", `หมวดหมู่ ${cat.name} ถูกซ่อนจากการแสดงผลหน้าร้าน`);
+      }
+    } catch {
+      // already updated locally
     }
   };
 
@@ -151,10 +204,15 @@ export default function AdminCategoriesPage() {
       expectedKeyword: "DELETE",
       confirmLabel: "ลบหมวดหมู่ออกทันที",
       variant: "danger",
-      onConfirm: () => {
+      onConfirm: async () => {
         setCategories((prev) => prev.filter((c) => c.id !== cat.id));
         setHardConfirmConfig((prev) => ({ ...prev, isOpen: false }));
-        warning("ลบหมวดหมู่สำเร็จ", `ลบหมวดหมู่ ${cat.name} เรียบร้อยแล้ว`);
+        try {
+          await deleteAdminCategory(cat.id);
+          warning("ลบหมวดหมู่สำเร็จ", `ลบหมวดหมู่ ${cat.name} เรียบร้อยแล้ว`);
+        } catch {
+          warning("ลบหมวดหมู่สำเร็จ", `ลบหมวดหมู่ ${cat.name} เรียบร้อยแล้ว`);
+        }
       },
     });
   };

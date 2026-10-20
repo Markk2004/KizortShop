@@ -15,6 +15,8 @@ import {
   Package,
   ShieldCheck,
   TrendingUp,
+  Receipt,
+  Wallet,
 } from "lucide-react";
 import { formatBaht } from "@/lib/format";
 import {
@@ -28,7 +30,9 @@ import {
 } from "@/features/admin/components/AdminSmartFilterBar";
 import {
   fetchDashboardMetrics,
+  fetchAccountingData,
   type DashboardMetrics,
+  type AccountingData,
 } from "@/features/admin/services/admin-api";
 
 type TimeRange = "TODAY" | "7D" | "MONTH" | "CUSTOM";
@@ -136,6 +140,7 @@ export default function AdminDashboardPage() {
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [selectedOrder, setSelectedOrder] = useState<OrderDrawerData | null>(null);
   const [notification, setNotification] = useState<string | null>(null);
+  const [accounting, setAccounting] = useState<AccountingData | null>(null);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
     dailyRevenue: 48250,
     monthlyRevenue: 1245000,
@@ -150,6 +155,11 @@ export default function AdminDashboardPage() {
     fetchDashboardMetrics().then((res) => {
       if (isMounted && res) {
         setMetrics(res);
+      }
+    });
+    fetchAccountingData().then((res) => {
+      if (isMounted && res) {
+        setAccounting(res);
       }
     });
     return () => {
@@ -523,6 +533,170 @@ export default function AdminDashboardPage() {
           >
             <span>ใกล้หมด 4 รายการ · ดูรายการสต็อก</span>
           </Link>
+        </div>
+      </section>
+
+      {/* REAL-TIME COST & PROFIT ACCOUNTING (ระบบบัญชี ต้นทุน - กำไร - ขาดทุน) */}
+      <section className="rounded-xl border border-zinc-800 bg-obsidian-900 p-6 space-y-6">
+        <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 pb-4 border-b border-zinc-800">
+          <div>
+            <div className="flex items-center gap-2">
+              <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+              <h2 className="text-base sm:text-lg font-bold text-white tracking-tight flex items-center gap-2">
+                <Receipt className="w-5 h-5 text-emerald-400" />
+                ระบบบัญชีการเงิน: ยอดขาย ต้นทุน และกำไรสุทธิ (Real-Time Cost & Profit Ledger)
+              </h2>
+            </div>
+            <p className="text-xs text-zinc-400 mt-1">
+              คำนวณจากยอดขายจริง ต้นทุนรับเข้า (COGS) และมูลค่าสินค้าคงคลังใน Supabase Database อัตโนมัติ
+            </p>
+          </div>
+
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-mono text-zinc-400">สถานะสต็อก:</span>
+            <span className="px-2.5 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold">
+              ขายแล้ว {accounting?.summary.soldCount ?? 0} / พร้อมขาย {accounting?.summary.availableCount ?? 0}
+            </span>
+          </div>
+        </div>
+
+        {/* 4 Financial Metric Cards */}
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          {/* Card 1: Total Revenue */}
+          <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest block">
+              01 // ยอดขายจริงรวม (TOTAL REVENUE)
+            </span>
+            <p className="text-2xl font-bold font-mono text-white num-tabular">
+              {formatBaht(accounting?.summary.totalRevenue ?? 0)}
+            </p>
+            <span className="text-[11px] text-zinc-500 font-mono block">
+              จากไอดีที่ขายออกแล้ว {accounting?.summary.soldCount ?? 0} บัญชี
+            </span>
+          </div>
+
+          {/* Card 2: Total Cost */}
+          <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest block">
+              02 // ต้นทุนสินค้ารวม (TOTAL COGS)
+            </span>
+            <p className="text-2xl font-bold font-mono text-zinc-200 num-tabular">
+              {formatBaht(accounting?.summary.totalCost ?? 0)}
+            </p>
+            <span className="text-[11px] text-zinc-500 font-mono block">
+              {accounting?.summary.totalCost === 0
+                ? "ทำเอง/ฟาร์มเอง (ต้นทุน ฿0.00)"
+                : "ต้นทุนสินค้าที่ขายแล้ว"}
+            </span>
+          </div>
+
+          {/* Card 3: Net Profit */}
+          <div className="p-4 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1">
+            <div className="flex items-center justify-between">
+              <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest block font-bold">
+                03 // กำไรสุทธิ (NET PROFIT)
+              </span>
+              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
+                {accounting?.summary.profitMargin ?? 100}% MARGIN
+              </span>
+            </div>
+            <p className="text-2xl font-bold font-mono text-emerald-400 num-tabular">
+              +{formatBaht(accounting?.summary.netProfit ?? 0)}
+            </p>
+            <span className="text-[11px] text-emerald-500/80 font-mono block">
+              กำไรสุทธิหลังหักต้นทุนทุกรายการ
+            </span>
+          </div>
+
+          {/* Card 4: Inventory Valuation */}
+          <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 space-y-1">
+            <span className="text-[10px] font-mono text-zinc-400 uppercase tracking-widest block">
+              04 // มูลค่าสต็อกคงเหลือ (INVENTORY VALUE)
+            </span>
+            <p className="text-2xl font-bold font-mono text-blue-400 num-tabular">
+              {formatBaht(accounting?.summary.potentialRevenue ?? 0)}
+            </p>
+            <span className="text-[11px] text-zinc-500 font-mono block">
+              พร้อมขาย {accounting?.summary.availableCount ?? 0} บัญชี (ต้นทุนคงค้าง{" "}
+              {formatBaht(accounting?.summary.inventoryCost ?? 0)})
+            </span>
+          </div>
+        </div>
+
+        {/* Breakdown by Map Table */}
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-300">
+              📊 สรุปยอดขาย ต้นทุน และกำไร แยกตามแมพ / หมวดหมู่เกม
+            </h3>
+            <span className="text-[11px] text-zinc-500 font-mono">
+              {accounting?.breakdownByMap.length ?? 0} หมวดหมู่
+            </span>
+          </div>
+
+          <div className="rounded-lg border border-zinc-800 overflow-hidden bg-zinc-950/60">
+            <table className="w-full text-left text-xs text-zinc-300">
+              <thead className="bg-zinc-950 border-b border-zinc-800 font-mono uppercase text-zinc-400 text-[11px]">
+                <tr>
+                  <th className="py-2.5 px-4">แมพ / สินค้า</th>
+                  <th className="py-2.5 px-4 text-center">ขายแล้ว</th>
+                  <th className="py-2.5 px-4 text-center">คงเหลือ</th>
+                  <th className="py-2.5 px-4 text-right">ยอดขายรวม</th>
+                  <th className="py-2.5 px-4 text-right">ต้นทุนรวม</th>
+                  <th className="py-2.5 px-4 text-right">กำไรสุทธิ</th>
+                  <th className="py-2.5 px-4 text-center">อัตรากำไร</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-zinc-800/60">
+                {!accounting || accounting.breakdownByMap.length === 0 ? (
+                  <tr>
+                    <td colSpan={7} className="py-6 text-center text-zinc-500 font-mono">
+                      ยังไม่มีรายการบัญชีในระบบ
+                    </td>
+                  </tr>
+                ) : (
+                  accounting.breakdownByMap.map((mapItem) => {
+                    const margin =
+                      mapItem.revenue > 0
+                        ? ((mapItem.profit / mapItem.revenue) * 100).toFixed(0)
+                        : "0";
+                    return (
+                      <tr key={mapItem.mapName} className="hover:bg-zinc-800/30 transition-colors">
+                        <td className="py-3 px-4 font-medium text-white flex items-center gap-1.5">
+                          <span>🗺️</span>
+                          <span>{mapItem.mapName}</span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono num-tabular">
+                          <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-white">
+                            {mapItem.soldCount}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono num-tabular">
+                          <span className="px-2 py-0.5 rounded bg-zinc-900 border border-zinc-800 text-emerald-400">
+                            {mapItem.availableCount}
+                          </span>
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-white num-tabular">
+                          {formatBaht(mapItem.revenue)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono text-zinc-400 num-tabular">
+                          {formatBaht(mapItem.cost)}
+                        </td>
+                        <td className="py-3 px-4 text-right font-mono font-bold text-emerald-400 num-tabular">
+                          +{formatBaht(mapItem.profit)}
+                        </td>
+                        <td className="py-3 px-4 text-center font-mono">
+                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                            {margin}%
+                          </span>
+                        </td>
+                      </tr>
+                    );
+                  })
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </section>
 

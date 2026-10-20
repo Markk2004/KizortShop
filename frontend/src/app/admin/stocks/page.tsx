@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   AlertTriangle,
   Boxes,
@@ -19,6 +19,7 @@ import {
   verifySearchInput,
   type SearchFieldMode,
 } from "@/features/admin/components/AdminSmartFilterBar";
+import { apiDelete } from "@/lib/api-client";
 
 type StockMode = "POOL" | "UNIQUE_1TO1";
 type CredentialFormat = "USER_PASS" | "USER_PASS_2FA" | "COOKIE_TOKEN" | "REDEEM_KEY";
@@ -39,6 +40,7 @@ interface StockItem {
   productId: string;
   productCode: string;
   productTitle: string;
+  categoryName?: string;
   stockMode: StockMode;
   credentialFormat: CredentialFormat;
   credentialHash: string;
@@ -67,7 +69,9 @@ function computeCredentialHash(rawLine: string, format: CredentialFormat): {
   maskedIdentity: string;
   primaryKey: string;
 } {
-  const parts = rawLine.trim().split(":");
+  const parts = rawLine.includes("|")
+    ? rawLine.trim().split("|").map((s) => s.trim())
+    : rawLine.trim().split(":").map((s) => s.trim());
   const primaryKey =
     format === "COOKIE_TOKEN" || format === "REDEEM_KEY"
       ? rawLine.trim().toLowerCase()
@@ -102,23 +106,25 @@ function validateCredentialFormat(
   format: CredentialFormat,
 ): { valid: boolean; reason?: string } {
   const trimmed = rawLine.trim();
-  const parts = trimmed.split(":");
+  const parts = trimmed.includes("|")
+    ? trimmed.split("|").map((s) => s.trim())
+    : trimmed.split(":").map((s) => s.trim());
 
   if (format === "USER_PASS") {
-    if (parts.length < 2 || !parts[0].trim() || !parts[1].trim()) {
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
       return {
         valid: false,
-        reason: "ต้องอยู่ในรูปแบบ USER:PASS (คั่นด้วย : อย่างน้อย 2 ส่วน)",
+        reason: "ต้องอยู่ในรูปแบบ USER:PASS หรือ USER | PASS (คั่นอย่างน้อย 2 ส่วน)",
       };
     }
     return { valid: true };
   }
 
   if (format === "USER_PASS_2FA") {
-    if (parts.length < 3 || !parts[0].trim() || !parts[1].trim() || !parts[2].trim()) {
+    if (parts.length < 3 || !parts[0] || !parts[1] || !parts[2]) {
       return {
         valid: false,
-        reason: "ต้องอยู่ในรูปแบบ USER:PASS:2FA_OR_EMAIL (ครบ 3 ส่วน)",
+        reason: "ต้องอยู่ในรูปแบบ USER:PASS:2FA หรือ USER | PASS | 2FA (ครบ 3 ส่วน)",
       };
     }
     return { valid: true };
@@ -147,273 +153,23 @@ function validateCredentialFormat(
   return { valid: true };
 }
 
-const targetProductOptions: TargetProductOption[] = [
-  {
-    id: "prod_01",
-    code: "BF-V4-MAX-01",
-    title: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น",
-    stockMode: "POOL",
-    credentialFormat: "USER_PASS",
-    defaultCost: 190,
-  },
-  {
-    id: "prod_02",
-    code: "BF-CDK-MAX-02",
-    title: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณ",
-    stockMode: "POOL",
-    credentialFormat: "USER_PASS",
-    defaultCost: 110,
-  },
-  {
-    id: "prod_04",
-    code: "UNQ-KITSUNE-04",
-    title: "[คัดเฉพาะ 1:1] ไอดีผลจิ้งจอกเก้าหาง Kitsune ถาวร + Sanguine Art",
-    stockMode: "UNIQUE_1TO1",
-    credentialFormat: "USER_PASS_2FA",
-    defaultCost: 620,
-  },
-  {
-    id: "prod_05",
-    code: "BF-SHARK-05",
-    title: "ไก่ตัน Blox Fruits หมัด Godhuman + สมอ Shark Anchor การันตี",
-    stockMode: "POOL",
-    credentialFormat: "USER_PASS",
-    defaultCost: 145,
-  },
-  {
-    id: "prod_03",
-    code: "UNQ-AD-MYTHIC-03",
-    title: "[คัดเฉพาะ 1:1] Anime Defenders Unit Mythic ลิมิเต็ด ดาวเต็ม",
-    stockMode: "UNIQUE_1TO1",
-    credentialFormat: "USER_PASS_2FA",
-    defaultCost: 480,
-  },
-  {
-    id: "prod_06",
-    code: "BF-RND-06",
-    title: "กล่องสุ่มไก่ตัน 6 หมัด เลเวลตัน 2550 ลุ้นดาบคู่โอเด้ง",
-    stockMode: "POOL",
-    credentialFormat: "USER_PASS",
-    defaultCost: 45,
-  },
-  {
-    id: "p-rbx-500",
-    code: "RBX-500",
-    title: "เติม Robux 500 R$ ระบบคีย์อัตโนมัติ ส่งเข้าคลังทันที",
-    stockMode: "POOL",
-    credentialFormat: "REDEEM_KEY",
-    defaultCost: 95,
-  },
-];
-
-const rawInitialSeed: Array<{
-  serialCode: string;
-  productId: string;
-  credentials: string;
-  batchCode: string;
-  supplierName: string;
-  costPrice: number;
-  status: StockStatus;
-  importedAt: string;
-  orderNumber?: string;
-  defectReason?: string;
-}> = [
-  {
-    serialCode: "STK-BFV4-261018-0001",
-    productId: "prod_01",
-    credentials: "bf_cyborg99:P@ssword2026",
-    batchCode: "LOT-261018-A",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 190,
-    status: "AVAILABLE",
-    importedAt: "2026-10-18 11:20",
-  },
-  {
-    serialCode: "STK-BFV4-261018-0002",
-    productId: "prod_01",
-    credentials: "bf_master_god:SafeSecret!77",
-    batchCode: "LOT-261018-A",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 190,
-    status: "AVAILABLE",
-    importedAt: "2026-10-18 11:25",
-  },
-  {
-    serialCode: "STK-BFCDK-261018-0003",
-    productId: "prod_02",
-    credentials: "cdk_hunter01:HunterPass#9",
-    batchCode: "LOT-261018-A",
-    supplierName: "SeaVault_Studio",
-    costPrice: 110,
-    status: "AVAILABLE",
-    importedAt: "2026-10-18 10:40",
-  },
-  {
-    serialCode: "STK-BFCDK-261018-0004",
-    productId: "prod_02",
-    credentials: "cdk_hunter02:DualSword$22",
-    batchCode: "LOT-261018-A",
-    supplierName: "SeaVault_Studio",
-    costPrice: 110,
-    status: "SOLD",
-    importedAt: "2026-10-18 09:10",
-    orderNumber: "KZ-99412",
-  },
-  {
-    serialCode: "STK-RBX500-261018-0005",
-    productId: "p-rbx-500",
-    credentials: "KEY-RBX500-A91F-72CC",
-    batchCode: "LOT-261018-RBX",
-    supplierName: "RobloxGroup_Direct",
-    costPrice: 95,
-    status: "SOLD",
-    importedAt: "2026-10-18 08:30",
-    orderNumber: "KZ-99388",
-  },
-  {
-    serialCode: "STK-UNQKIT-261017-0006",
-    productId: "prod_04",
-    credentials: "kitsune_lord01:FoxFire@999:BACKUP-8821",
-    batchCode: "LOT-261017-VIP",
-    supplierName: "Vanguard_Collector",
-    costPrice: 620,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 22:15",
-  },
-  {
-    serialCode: "STK-BFSHK-261017-0007",
-    productId: "prod_05",
-    credentials: "shark_anchor76:OceanClaim!01",
-    batchCode: "LOT-261017-B",
-    supplierName: "GrandLine_Supply",
-    costPrice: 145,
-    status: "CLAIMED_DEFECTIVE",
-    importedAt: "2026-10-17 21:10",
-    orderNumber: "KZ-99401",
-    defectReason: "ติดรหัส 2FA เดิมจากฟาร์ม (เปลี่ยนไอดีใหม่ให้ลูกค้าแล้ว)",
-  },
-  {
-    serialCode: "STK-BFSHK-261017-0008",
-    productId: "prod_05",
-    credentials: "shark_anchor77:OceanDeep!12",
-    batchCode: "LOT-261017-B",
-    supplierName: "GrandLine_Supply",
-    costPrice: 145,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 20:05",
-  },
-  {
-    serialCode: "STK-BFSHK-261017-0009",
-    productId: "prod_05",
-    credentials: "shark_anchor78:Leviathan$55",
-    batchCode: "LOT-261017-B",
-    supplierName: "GrandLine_Supply",
-    costPrice: 145,
-    status: "SOLD",
-    importedAt: "2026-10-17 19:45",
-    orderNumber: "KZ-99408",
-  },
-  {
-    serialCode: "STK-UNQAD-261017-0010",
-    productId: "prod_03",
-    credentials: "ad_mythic_star:DefenderPro#1:2FA-9001",
-    batchCode: "LOT-261017-VIP",
-    supplierName: "Vanguard_Collector",
-    costPrice: 480,
-    status: "SOLD",
-    importedAt: "2026-10-17 18:10",
-    orderNumber: "KZ-99410",
-  },
-  {
-    serialCode: "STK-BFRND-261017-0011",
-    productId: "prod_06",
-    credentials: "rnd_box_091:RandomLuck@1",
-    batchCode: "LOT-261017-C",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 45,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 16:30",
-  },
-  {
-    serialCode: "STK-BFRND-261017-0012",
-    productId: "prod_06",
-    credentials: "rnd_box_092:RandomLuck@2",
-    batchCode: "LOT-261017-C",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 45,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 16:30",
-  },
-  {
-    serialCode: "STK-BFRND-261017-0013",
-    productId: "prod_06",
-    credentials: "rnd_box_093:RandomLuck@3",
-    batchCode: "LOT-261017-C",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 45,
-    status: "SOLD",
-    importedAt: "2026-10-17 16:29",
-    orderNumber: "KZ-99409",
-  },
-  {
-    serialCode: "STK-BFV4-261017-0014",
-    productId: "prod_01",
-    credentials: "bf_cyborg100:LeopardAwakened!9",
-    batchCode: "LOT-261017-A",
-    supplierName: "KaitanFarm_TH",
-    costPrice: 190,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 14:00",
-  },
-  {
-    serialCode: "STK-BFCDK-261017-0015",
-    productId: "prod_02",
-    credentials: "cdk_hunter03:SoulGuitar#77",
-    batchCode: "LOT-261017-A",
-    supplierName: "SeaVault_Studio",
-    costPrice: 110,
-    status: "AVAILABLE",
-    importedAt: "2026-10-17 12:15",
-  },
-];
-
-const initialStocks: StockItem[] = rawInitialSeed.map((seed, index) => {
-  const product =
-    targetProductOptions.find((p) => p.id === seed.productId) || targetProductOptions[0];
-  const { hash, maskedIdentity } = computeCredentialHash(
-    seed.credentials,
-    product.credentialFormat,
-  );
-  return {
-    id: `stk_${String(index + 1).padStart(2, "0")}`,
-    serialCode: seed.serialCode,
-    productId: product.id,
-    productCode: product.code,
-    productTitle: product.title,
-    stockMode: product.stockMode,
-    credentialFormat: product.credentialFormat,
-    credentialHash: hash,
-    maskedIdentity,
-    credentials: seed.credentials,
-    batchCode: seed.batchCode,
-    supplierName: seed.supplierName,
-    costPrice: seed.costPrice,
-    defectReason: seed.defectReason,
-    status: seed.status,
-    importedAt: seed.importedAt,
-    orderNumber: seed.orderNumber,
-  };
-});
+const defaultProductOption: TargetProductOption = {
+  id: "9156b43e-ff6b-499d-b5cc-550f0a2b035d",
+  code: "5C7-5206",
+  title: "ไก่ตันที่ขุด Break And Steal Egg",
+  stockMode: "POOL",
+  credentialFormat: "USER_PASS",
+  defaultCost: 0,
+};
 
 export default function AdminStocksPage() {
-  const [stocks, setStocks] = useState<StockItem[]>(initialStocks);
+  const [productOptions, setProductOptions] = useState<TargetProductOption[]>([defaultProductOption]);
+  const [stocks, setStocks] = useState<StockItem[]>([]);
   const [loading, setLoading] = useState<boolean>(false);
-  const [selectedProductId, setSelectedProductId] = useState<string>(targetProductOptions[0].id);
-  const [batchCodeInput, setBatchCodeInput] = useState<string>("LOT-261018-B");
-  const [supplierInput, setSupplierInput] = useState<string>("KaitanFarm_TH");
-  const [costPriceInput, setCostPriceInput] = useState<string>(
-    String(targetProductOptions[0].defaultCost),
-  );
+  const [selectedProductId, setSelectedProductId] = useState<string>(defaultProductOption.id);
+  const [batchCodeInput, setBatchCodeInput] = useState<string>("LOT-2026");
+  const [supplierInput, setSupplierInput] = useState<string>("ทำเอง (Self-Farmed)");
+  const [costPriceInput, setCostPriceInput] = useState<string>("0");
   const [allowRestockOverride, setAllowRestockOverride] = useState<boolean>(false);
   const [importText, setImportText] = useState<string>("");
   const [importErrors, setImportErrors] = useState<string[]>([]);
@@ -421,6 +177,7 @@ export default function AdminStocksPage() {
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | StockStatus>("ALL");
+  const [mapFilter, setMapFilter] = useState<string>("ALL");
   const [revealedIds, setRevealedIds] = useState<Record<string, boolean>>({});
   const [notification, setNotification] = useState<string | null>(null);
 
@@ -443,43 +200,88 @@ export default function AdminStocksPage() {
       const res = await fetch("http://localhost:4000/api/v1/admin/stocks?pageSize=100");
       if (res.ok) {
         const json = await res.json();
-        if (json.data && Array.isArray(json.data) && json.data.length > 0) {
+        if (json.data && Array.isArray(json.data)) {
           setStocks(json.data);
         }
       }
     } catch {
-      // Keep initialStocks if backend is offline
+      // Keep state if offline
     } finally {
       setLoading(false);
     }
   };
 
-  useState(() => {
+  const fetchProductsFromApi = async () => {
+    try {
+      const res = await fetch("http://localhost:4000/api/v1/admin/products");
+      if (res.ok) {
+        const json = await res.json();
+        const prods = json.data || json;
+        if (Array.isArray(prods) && prods.length > 0) {
+          const mapped: TargetProductOption[] = prods.map((p: any) => ({
+            id: p.id,
+            code: p.code || p.sku || "",
+            title: p.title || p.name || "",
+            stockMode: "POOL",
+            credentialFormat: "USER_PASS",
+            defaultCost: 0,
+          }));
+          setProductOptions(mapped);
+          setSelectedProductId(mapped[0].id);
+        }
+      }
+    } catch {}
+  };
+
+  useEffect(() => {
     fetchStocksFromApi();
-  });
+    fetchProductsFromApi();
+  }, []);
 
   const selectedProduct =
-    targetProductOptions.find((p) => p.id === selectedProductId) || targetProductOptions[0];
+    productOptions.find((p) => p.id === selectedProductId) || productOptions[0] || defaultProductOption;
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 4500);
   };
 
-  const toggleReveal = (id: string) => {
-    setRevealedIds((prev) => ({ ...prev, [id]: !prev[id] }));
+  const toggleReveal = async (id: string) => {
+    if (revealedIds[id]) {
+      setRevealedIds((prev) => ({ ...prev, [id]: false }));
+      return;
+    }
+
+    const target = stocks.find((s) => s.id === id);
+    if (target && !target.credentials) {
+      try {
+        const res = await fetch(`http://localhost:4000/api/v1/admin/stocks/${id}/reveal`, {
+          method: "POST",
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.decrypted) {
+            setStocks((prev) =>
+              prev.map((s) => (s.id === id ? { ...s, credentials: json.decrypted } : s)),
+            );
+          }
+        }
+      } catch {}
+    }
+
+    setRevealedIds((prev) => ({ ...prev, [id]: true }));
   };
 
   const handleProductChange = (newProdId: string) => {
     setSelectedProductId(newProdId);
-    const found = targetProductOptions.find((p) => p.id === newProdId);
+    const found = productOptions.find((p) => p.id === newProdId);
     if (found) {
       setCostPriceInput(String(found.defaultCost));
     }
     setImportErrors([]);
   };
 
-  const handleBatchImport = (e: React.FormEvent) => {
+  const handleBatchImport = async (e: React.FormEvent) => {
     e.preventDefault();
     setImportErrors([]);
 
@@ -493,100 +295,52 @@ export default function AdminStocksPage() {
       return;
     }
 
-    const errors: string[] = [];
-
-    // 1. Check 1-to-1 Unique Product rule
-    if (selectedProduct.stockMode === "UNIQUE_1TO1") {
-      const existingActiveForUnique = stocks.filter(
-        (s) => s.productId === selectedProduct.id && s.status === "AVAILABLE",
-      );
-      if (lines.length > 1) {
-        errors.push(
-          `รหัสสินค้า [${selectedProduct.code}] เป็นโหมด UNIQUE_1TO1 (ไอดีคัดเฉพาะ 1:1) นำเข้าได้ครั้งละ 1 ไอดีเท่านั้น`,
-        );
-      } else if (existingActiveForUnique.length > 0 && !allowRestockOverride) {
-        errors.push(
-          `รหัสสินค้า [${selectedProduct.code}] มีไอดีพร้อมขายอยู่ในคลังแล้ว (${existingActiveForUnique[0].serialCode}) ห้ามลงซ้ำในโหมด 1:1`,
-        );
-      }
-    }
-
-    // 2. Validate each line format + Global Unique Hash check
-    const seenHashesInBatch = new Set<string>();
-    const preparedItems: StockItem[] = [];
-    const nowStr = new Date().toLocaleString("th-TH", { timeZone: "Asia/Bangkok" });
-    const skuShort = selectedProduct.code.replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase();
-
-    lines.forEach((line, idx) => {
-      const lineNum = idx + 1;
-      const formatCheck = validateCredentialFormat(line, selectedProduct.credentialFormat);
-      if (!formatCheck.valid) {
-        errors.push(`บรรทัดที่ ${lineNum}: ${formatCheck.reason}`);
-        return;
-      }
-
-      const { hash, maskedIdentity, primaryKey } = computeCredentialHash(
-        line,
-        selectedProduct.credentialFormat,
-      );
-
-      if (seenHashesInBatch.has(hash)) {
-        errors.push(
-          `บรรทัดที่ ${lineNum}: พบไอดี "${primaryKey}" ซ้ำกันเองภายในรายการที่กำลังนำเข้า`,
-        );
-        return;
-      }
-      seenHashesInBatch.add(hash);
-
-      const duplicateInDb = stocks.find((s) => s.credentialHash === hash);
-      if (duplicateInDb && !allowRestockOverride) {
-        errors.push(
-          `บรรทัดที่ ${lineNum}: บล็อกไอดีซ้ำระดับ Global Hash (${hash.slice(0, 13)}) — เคยอยู่ในระบบแล้วที่รหัส ${duplicateInDb.serialCode} [สถานะ: ${duplicateInDb.status}]`,
-        );
-        return;
-      }
-
-      const seqNum = String(stocks.length + idx + 1).padStart(4, "0");
-      preparedItems.push({
-        id: `stk_${Date.now()}_${idx}`,
-        serialCode: `STK-${skuShort}-261018-${seqNum}`,
-        productId: selectedProduct.id,
-        productCode: selectedProduct.code,
-        productTitle: selectedProduct.title,
-        stockMode: selectedProduct.stockMode,
-        credentialFormat: selectedProduct.credentialFormat,
-        credentialHash: hash,
-        maskedIdentity,
-        credentials: line,
-        batchCode: batchCodeInput.trim() || "LOT-DEFAULT",
-        supplierName: supplierInput.trim() || "Internal_Stock",
-        costPrice: parseFloat(costPriceInput) || 0,
-        status: "AVAILABLE",
-        importedAt: nowStr,
+    try {
+      const res = await fetch("http://localhost:4000/api/v1/admin/stocks/batch", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          productId: selectedProduct.id,
+          credentials: lines,
+          batchCode: batchCodeInput.trim() || "LOT-DEFAULT",
+          supplierName: supplierInput.trim() || "ทำเอง (Self-Farmed)",
+          costPrice: parseFloat(costPriceInput) || 0,
+          allowRestockOverride,
+        }),
       });
-    });
 
-    if (errors.length > 0) {
-      setImportErrors(errors);
-      return;
+      const data = await res.json();
+
+      if (!res.ok) {
+        const errList = data.errors || (data.message ? [data.message] : ["นำเข้าสต็อกไม่สำเร็จ"]);
+        setImportErrors(Array.isArray(errList) ? errList : [errList]);
+        return;
+      }
+
+      setImportText("");
+      setAllowRestockOverride(false);
+      setCurrentPage(1);
+      showNotification(
+        `นำเข้าสต็อกสำเร็จ ${data.importedCount || lines.length} รายการ (บันทึกสู่ Supabase เรียบร้อย)`,
+      );
+      await fetchStocksFromApi();
+    } catch (err: any) {
+      setImportErrors([err?.message || "ไม่สามารถเชื่อมต่อเซิร์ฟเวอร์"]);
     }
-
-    setStocks((prev) => [...preparedItems, ...prev]);
-    setImportText("");
-    setAllowRestockOverride(false);
-    setCurrentPage(1);
-    showNotification(
-      `ผ่านการตรวจสอบ Global Hash & Format — นำเข้าสำเร็จ ${preparedItems.length} รายการ`,
-    );
   };
 
-  const handleCycleStatus = (item: StockItem) => {
+
+  const handleCycleStatus = async (item: StockItem) => {
     const nextOrder: Record<StockStatus, StockStatus> = {
       AVAILABLE: "SOLD",
       SOLD: "CLAIMED_DEFECTIVE",
       CLAIMED_DEFECTIVE: "AVAILABLE",
     };
     const nextStatus = nextOrder[item.status];
+    const defectReason =
+      nextStatus === "CLAIMED_DEFECTIVE"
+        ? "แอดมินมาร์กไอดีมีปัญหา / เคลมในประกัน 24 ชม."
+        : undefined;
 
     setStocks((prev) =>
       prev.map((s) => {
@@ -596,16 +350,22 @@ export default function AdminStocksPage() {
             status: nextStatus,
             orderNumber:
               nextStatus === "SOLD" ? s.orderNumber || "KZ-MANUAL" : s.orderNumber,
-            defectReason:
-              nextStatus === "CLAIMED_DEFECTIVE"
-                ? "แอดมินมาร์กไอดีมีปัญหา / เคลมในประกัน 24 ชม."
-                : undefined,
+            defectReason,
           };
         }
         return s;
       }),
     );
-    showNotification(`อัปเดตสถานะ ${item.serialCode} เป็น ${nextStatus}`);
+
+    try {
+      await fetch(`http://localhost:4000/api/v1/admin/stocks/${item.id}/status`, {
+        method: "PATCH",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ status: nextStatus, defectReason }),
+      });
+    } catch {}
+
+    showNotification(`อัปเดตสถานะ ${item.serialCode} เป็น ${nextStatus} (ซิงค์เข้า Supabase & Discord แล้ว)`);
   };
 
   const openEditModal = (item: StockItem) => {
@@ -655,21 +415,58 @@ export default function AdminStocksPage() {
     showNotification(`อัปเดตข้อมูลไอดี ${editingItem.username || editingItem.serialCode} เรียบร้อย (แจ้งเตือนใน Discord แล้ว)`);
   };
 
-  const handleDeleteItem = (id: string) => {
+  const handleDeleteItem = async (id: string) => {
     setStocks((prev) => prev.filter((item) => item.id !== id));
+    try {
+      await apiDelete(`/admin/stocks/${id}`);
+    } catch {}
     showNotification("ลบรายการสต็อกออกจากระบบแล้ว");
   };
 
-  const handleCopy = (text: string, label: string) => {
-    navigator.clipboard.writeText(text);
-    showNotification(`คัดลอก ${label} เรียบร้อย`);
+  const handleCopy = async (item: StockItem) => {
+    let textToCopy = item.credentials;
+    if (!textToCopy) {
+      try {
+        const res = await fetch(`http://localhost:4000/api/v1/admin/stocks/${item.id}/reveal`, {
+          method: "POST",
+        });
+        if (res.ok) {
+          const json = await res.json();
+          if (json.decrypted) {
+            textToCopy = json.decrypted;
+            setStocks((prev) =>
+              prev.map((s) => (s.id === item.id ? { ...s, credentials: json.decrypted } : s)),
+            );
+          }
+        }
+      } catch {}
+    }
+    navigator.clipboard.writeText(textToCopy || item.username || item.serialCode);
+    showNotification(`คัดลอกรหัสของ ${item.username || item.serialCode} เรียบร้อย`);
   };
 
   const verification = verifySearchInput(searchQuery, searchMode);
 
+  // Collect unique maps/games from stock items
+  const uniqueMaps = Array.from(
+    new Set(
+      stocks
+        .map((s) => (s.farmedMaps || s.categoryName || s.productTitle || "").trim())
+        .filter((m) => m.length > 0),
+    ),
+  ).sort();
+
   // Filtered stocks
   const filteredStocks = stocks.filter((item) => {
     if (statusFilter !== "ALL" && item.status !== statusFilter) return false;
+
+    if (mapFilter !== "ALL") {
+      const combined = `${item.farmedMaps || ""} ${item.categoryName || ""} ${item.productTitle || ""}`.toLowerCase();
+      if (!combined.includes(mapFilter.toLowerCase())) {
+        return false;
+      }
+    }
+
     const q = searchQuery.trim().toLowerCase();
     if (!q) return true;
     if (!verification.isValid) return false;
@@ -847,7 +644,7 @@ export default function AdminStocksPage() {
                 onChange={(e) => handleProductChange(e.target.value)}
                 className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-500 rounded-md p-2.5 text-xs text-white focus:outline-none"
               >
-                {targetProductOptions.map((opt) => (
+                {productOptions.map((opt) => (
                   <option key={opt.id} value={opt.id} className="bg-obsidian-950 text-white">
                     [{opt.code}] ({opt.stockMode}) — {opt.title}
                   </option>
@@ -871,13 +668,13 @@ export default function AdminStocksPage() {
             <div className="grid grid-cols-2 gap-2">
               <div>
                 <label className="text-xs font-medium text-zinc-300 block mb-1.5">
-                  ซัพพลายเออร์ (Supplier)
+                  แหล่งที่มา / ทำเอง (Source)
                 </label>
                 <input
                   type="text"
                   value={supplierInput}
                   onChange={(e) => setSupplierInput(e.target.value)}
-                  placeholder="ชื่อฟาร์ม/แม่ค้า"
+                  placeholder="เช่น ทำเอง / ฟาร์มเอง"
                   className="w-full bg-zinc-950 border border-zinc-800 focus:border-zinc-500 rounded-md p-2.5 text-xs text-white focus:outline-none"
                 />
               </div>
@@ -957,63 +754,95 @@ export default function AdminStocksPage() {
           totalMatched={filteredStocks.length}
           totalAll={stocks.length}
         >
-          <div className="flex p-1 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs">
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter("ALL");
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                statusFilter === "ALL"
-                  ? "bg-white text-zinc-950 font-bold"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              ALL ({stocks.length})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter("AVAILABLE");
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                statusFilter === "AVAILABLE"
-                  ? "bg-white text-zinc-950 font-bold"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              AVAILABLE ({availableCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter("SOLD");
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                statusFilter === "SOLD"
-                  ? "bg-white text-zinc-950 font-bold"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              SOLD ({soldCount})
-            </button>
-            <button
-              type="button"
-              onClick={() => {
-                setStatusFilter("CLAIMED_DEFECTIVE");
-                setCurrentPage(1);
-              }}
-              className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
-                statusFilter === "CLAIMED_DEFECTIVE"
-                  ? "bg-white text-zinc-950 font-bold"
-                  : "text-zinc-400 hover:text-white"
-              }`}
-            >
-              CLAIMED ({claimedCount})
-            </button>
+          <div className="flex flex-wrap items-center gap-2">
+            {/* Map / Game Filter Dropdown */}
+            <div className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-zinc-950 border border-zinc-800 text-xs">
+              <span className="text-zinc-500 font-mono text-[11px] uppercase">MAP:</span>
+              <select
+                value={mapFilter}
+                onChange={(e) => {
+                  setMapFilter(e.target.value);
+                  setCurrentPage(1);
+                }}
+                className="bg-transparent text-white focus:outline-none cursor-pointer font-medium"
+              >
+                <option value="ALL" className="bg-zinc-950 text-white">
+                  🌐 ทุกแมพ / ทุกเกม ({stocks.length})
+                </option>
+                {uniqueMaps.map((mapName) => {
+                  const matchCount = stocks.filter((s) =>
+                    `${s.farmedMaps || ""} ${s.categoryName || ""} ${s.productTitle || ""}`
+                      .toLowerCase()
+                      .includes(mapName.toLowerCase()),
+                  ).length;
+                  return (
+                    <option key={mapName} value={mapName} className="bg-zinc-950 text-white">
+                      🗺️ {mapName} ({matchCount})
+                    </option>
+                  );
+                })}
+              </select>
+            </div>
+
+            {/* Status Filter Buttons */}
+            <div className="flex p-1 rounded-lg bg-zinc-950 border border-zinc-800 font-mono text-xs">
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("ALL");
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                  statusFilter === "ALL"
+                    ? "bg-white text-zinc-950 font-bold"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                ALL ({stocks.length})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("AVAILABLE");
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                  statusFilter === "AVAILABLE"
+                    ? "bg-white text-zinc-950 font-bold"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                AVAILABLE ({availableCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("SOLD");
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                  statusFilter === "SOLD"
+                    ? "bg-white text-zinc-950 font-bold"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                SOLD ({soldCount})
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setStatusFilter("CLAIMED_DEFECTIVE");
+                  setCurrentPage(1);
+                }}
+                className={`px-3 py-1.5 rounded-md transition-colors cursor-pointer ${
+                  statusFilter === "CLAIMED_DEFECTIVE"
+                    ? "bg-white text-zinc-950 font-bold"
+                    : "text-zinc-400 hover:text-white"
+                }`}
+              >
+                CLAIMED ({claimedCount})
+              </button>
+            </div>
           </div>
         </AdminSmartFilterBar>
 
@@ -1026,7 +855,7 @@ export default function AdminStocksPage() {
                   <th className="py-3.5 px-4">SERIAL / HASH</th>
                   <th className="py-3.5 px-4">PRODUCT SKU & MODE</th>
                   <th className="py-3.5 px-4">CREDENTIALS (AES-256)</th>
-                  <th className="py-3.5 px-4">BATCH / SUPPLIER / COST</th>
+                  <th className="py-3.5 px-4">BATCH / แหล่งที่มา / COST</th>
                   <th className="py-3.5 px-4">STATUS</th>
                   <th className="py-3.5 px-4 text-right">ACTION</th>
                 </tr>
@@ -1079,6 +908,11 @@ export default function AdminStocksPage() {
                           <span className="font-medium text-white text-sm block max-w-xs truncate">
                             {item.productTitle}
                           </span>
+                          {(item.farmedMaps || item.categoryName) && (
+                            <span className="inline-flex items-center gap-1 mt-1 px-2 py-0.5 rounded text-[10px] font-mono bg-blue-500/10 text-blue-400 border border-blue-500/20">
+                              🗺️ {item.farmedMaps || item.categoryName}
+                            </span>
+                          )}
                         </td>
 
                         {/* CREDENTIALS */}
@@ -1090,7 +924,7 @@ export default function AdminStocksPage() {
                             <span className="text-white font-semibold">
                               {isRevealed
                                 ? item.credentials
-                                : `${item.maskedIdentity} : ••••••••`}
+                                : `${item.username || item.maskedIdentity} : ••••••••`}
                             </span>
                             <button
                               type="button"
@@ -1106,7 +940,7 @@ export default function AdminStocksPage() {
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleCopy(item.credentials, item.serialCode)}
+                              onClick={() => handleCopy(item)}
                               title="คัดลอกข้อมูล"
                               className="p-1.5 rounded bg-zinc-900 hover:bg-zinc-800 text-zinc-300 hover:text-white transition-colors cursor-pointer"
                             >
@@ -1129,7 +963,7 @@ export default function AdminStocksPage() {
                         <td className="py-4 px-4 font-mono text-xs">
                           <span className="text-white font-semibold block">{item.batchCode}</span>
                           <span className="text-zinc-300 block">
-                            SUP: {item.supplierName}
+                            ที่มา: {item.supplierName}
                           </span>
                           <span className="text-zinc-400 block num-tabular">
                             COST: ฿{item.costPrice.toLocaleString()}

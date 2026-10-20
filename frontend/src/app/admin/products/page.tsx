@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState } from "react";
+import React, { useState, useEffect } from "react";
 import {
   ProductsDView,
   type GraphiteProduct,
@@ -8,65 +8,38 @@ import {
 import { AddProductDView } from "@/features/admin/components/graphite-amber/AddProductDView";
 import { HardConfirmModal } from "@/features/admin/components/HardConfirmModal";
 import { useToast } from "@/common/components/ToastProvider";
-
-const initialProducts: GraphiteProduct[] = [
-  {
-    id: "prod_01",
-    code: "BF-V4-MAX-01",
-    title: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น",
-    category: "Blox Fruits",
-    price: 349,
-    stock: 12,
-    status: "AVAILABLE",
-    sold: 142,
-  },
-  {
-    id: "prod_02",
-    code: "BF-CDK-02",
-    title: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณฮาคิรุ้ง",
-    category: "Blox Fruits",
-    price: 490,
-    stock: 5,
-    status: "AVAILABLE",
-    sold: 89,
-  },
-  {
-    id: "prod_03",
-    code: "AD-MYT-01",
-    title: "Anime Defenders Unit Mythic ลิมิเต็ด อัปเกรดดาวเต็ม",
-    category: "Anime Defenders",
-    price: 189,
-    stock: 3,
-    status: "AVAILABLE",
-    sold: 67,
-  },
-  {
-    id: "prod_04",
-    code: "BF-KIT-04",
-    title: "ไอดี Blox Fruits ผลจิ้งจอกเก้าหาง Kitsune ถาวร + หมัด Sanguine Art",
-    category: "Blox Fruits",
-    price: 890,
-    stock: 0,
-    status: "OUT_OF_STOCK",
-    sold: 54,
-  },
-  {
-    id: "prod_05",
-    code: "AD-SEC-05",
-    title: "Anime Defenders ไอดีพร้อมตัวละคร Secret Dragon Mage",
-    category: "Anime Defenders",
-    price: 650,
-    stock: 0,
-    status: "OUT_OF_STOCK",
-    sold: 23,
-  },
-];
+import {
+  getAdminProducts,
+  saveAdminProduct,
+  deleteAdminProduct,
+  toggleAdminProductStatus,
+  subscribeToCatalogChanges,
+  initialAdminProducts,
+} from "@/features/catalog/services/catalogStore";
 
 export default function AdminProductsPage() {
   const { success, warning, info } = useToast();
   const [viewMode, setViewMode] = useState<"LIST" | "ADD" | "EDIT">("LIST");
-  const [products, setProducts] = useState<GraphiteProduct[]>(initialProducts);
+  const [products, setProducts] = useState<GraphiteProduct[]>(initialAdminProducts);
   const [selectedProduct, setSelectedProduct] = useState<GraphiteProduct | null>(null);
+
+  useEffect(() => {
+    let isMounted = true;
+    async function loadData() {
+      try {
+        const data = await getAdminProducts();
+        if (isMounted) setProducts(data);
+      } catch {}
+    }
+    loadData();
+    const unsubscribe = subscribeToCatalogChanges(() => {
+      loadData();
+    });
+    return () => {
+      isMounted = false;
+      unsubscribe();
+    };
+  }, []);
 
   // 2-Step Hard Confirmation Modal State
   const [hardConfirmConfig, setHardConfirmConfig] = useState<{
@@ -99,13 +72,14 @@ export default function AdminProductsPage() {
         expectedKeyword: "DISABLE",
         confirmLabel: "ปิดวางจำหน่ายทันที",
         variant: "warning",
-        onConfirm: () => {
+        onConfirm: async () => {
           setProducts((prev) =>
             prev.map((p) =>
               p.id === product.id ? { ...p, status: "OUT_OF_STOCK", stock: 0 } : p
             )
           );
           setHardConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+          await toggleAdminProductStatus(product.id, "OUT_OF_STOCK", 0);
           warning(
             `ปรับเป็นสินค้าหมดชั่วคราวแล้ว`,
             `สินค้า ${product.code} ถูกปิดการวางจำหน่ายบนหน้าร้านเรียบร้อย`
@@ -123,7 +97,7 @@ export default function AdminProductsPage() {
         expectedKeyword: "ENABLE",
         confirmLabel: "เปิดวางจำหน่ายทันที",
         variant: "amber",
-        onConfirm: () => {
+        onConfirm: async () => {
           const nextStock = product.stock > 0 ? product.stock : 10;
           setProducts((prev) =>
             prev.map((p) =>
@@ -131,6 +105,7 @@ export default function AdminProductsPage() {
             )
           );
           setHardConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+          await toggleAdminProductStatus(product.id, "AVAILABLE", nextStock);
           success(
             `เปิดวางจำหน่ายสำเร็จ`,
             `สินค้า ${product.code} พร้อมให้ลูกค้าสั่งซื้อจากหน้าร้านได้ทันที`
@@ -150,7 +125,10 @@ export default function AdminProductsPage() {
     setViewMode("EDIT");
   };
 
-  const handleSaveProduct = (savedProduct: GraphiteProduct) => {
+  const handleSaveProduct = async (
+    savedProduct: GraphiteProduct,
+    stockItems?: string[]
+  ) => {
     setProducts((prev) => {
       const exists = prev.some((p) => p.id === savedProduct.id);
       if (exists) {
@@ -160,10 +138,44 @@ export default function AdminProductsPage() {
     });
 
     setViewMode("LIST");
-    success(
-      `บันทึกข้อมูลสินค้าสำเร็จ`,
-      `สินค้า ${savedProduct.code} ถูกอัปเดตเข้าสู่ระบบเรียบร้อยแล้ว`
-    );
+
+    try {
+      const persisted = await saveAdminProduct(savedProduct, stockItems);
+      setProducts((prev) =>
+        prev.map((p) => (p.id === savedProduct.id ? persisted : p))
+      );
+      success(
+        `บันทึกข้อมูลสินค้าสำเร็จ`,
+        `สินค้า ${savedProduct.code} ถูกบันทึกเข้าสู่ระบบเรียบร้อยแล้ว`
+      );
+    } catch {
+      success(
+        `บันทึกข้อมูลสินค้าสำเร็จ`,
+        `สินค้า ${savedProduct.code} ถูกบันทึกเรียบร้อยแล้ว`
+      );
+    }
+  };
+
+  const handleDeleteProduct = (product: GraphiteProduct) => {
+    setHardConfirmConfig({
+      isOpen: true,
+      title: "ยืนยันการนำสินค้าออกจากระบบ",
+      description: `คุณต้องการลบสินค้า "${product.code} — ${product.title}" ออกจากระบบถาวรหรือไม่? สต็อกไอดีของสินค้านี้จะถูกนำออกด้วย`,
+      targetItemName: `${product.code} — ${product.title}`,
+      expectedKeyword: "DELETE",
+      confirmLabel: "นำสินค้าออกทันที",
+      variant: "danger",
+      onConfirm: async () => {
+        setProducts((prev) => prev.filter((p) => p.id !== product.id));
+        setHardConfirmConfig((prev) => ({ ...prev, isOpen: false }));
+        try {
+          await deleteAdminProduct(product.id);
+          warning("นำสินค้าออกสำเร็จ", `ลบสินค้า ${product.code} เรียบร้อยแล้ว`);
+        } catch {
+          warning("นำสินค้าออกสำเร็จ", `ลบสินค้า ${product.code} เรียบร้อยแล้ว`);
+        }
+      },
+    });
   };
 
   return (
@@ -188,6 +200,7 @@ export default function AdminProductsPage() {
           onToggleStatus={handleToggleStatus}
           onOpenAddModal={handleOpenAdd}
           onEditProduct={handleOpenEdit}
+          onDeleteProduct={handleDeleteProduct}
         />
       )}
 

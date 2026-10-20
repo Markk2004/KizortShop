@@ -1,6 +1,6 @@
 "use client";
 
-import React, { useState, useId } from "react";
+import React, { useState, useId, useEffect } from "react";
 import {
   ArrowLeft,
   Check,
@@ -11,25 +11,49 @@ import {
 } from "lucide-react";
 import { formatBaht } from "@/lib/format";
 import type { GraphiteProduct } from "./ProductsDView";
-import { HardConfirmModal } from "@/features/admin/components/HardConfirmModal";
+import type { Category } from "@/types";
+import { getAdminCategories } from "@/features/catalog/services/catalogStore";
 
 interface AddProductDViewProps {
   onBack: () => void;
   onSaveProduct: (newProduct: GraphiteProduct, stockItems: string[]) => void;
   initialProduct?: GraphiteProduct | null;
+  categories?: Category[];
 }
 
 export function AddProductDView({
   onBack,
   onSaveProduct,
   initialProduct,
+  categories: propCategories,
 }: AddProductDViewProps) {
-  const [showCancelModal, setShowCancelModal] = useState(false);
+  const [categoriesList, setCategoriesList] = useState<Category[]>(propCategories || []);
+
+  useEffect(() => {
+    if (propCategories && propCategories.length > 0) {
+      setCategoriesList(propCategories);
+      return;
+    }
+    let isMounted = true;
+    getAdminCategories().then((cats) => {
+      if (isMounted && cats.length > 0) {
+        setCategoriesList(cats);
+        if (!initialProduct && !category && cats[0]) {
+          setCategory(cats[0].name);
+        }
+      }
+    });
+    return () => {
+      isMounted = false;
+    };
+  }, [propCategories]);
 
   // Form State
   const [title, setTitle] = useState(initialProduct?.title || "");
   const [sku, setSku] = useState(initialProduct?.code || "");
-  const [category, setCategory] = useState(initialProduct?.category || "Blox Fruits");
+  const [category, setCategory] = useState(
+    initialProduct?.category || (propCategories?.[0]?.name ?? "ไก่ตัน Blox Fruits ขั้นเทพ")
+  );
   const [description, setDescription] = useState(
     "ไอดีแท้ 100% ปลอดภัย ไร้ประวัติแบน พร้อมส่งมอบข้อมูลทันทีหลังชำระเงิน"
   );
@@ -77,11 +101,7 @@ export function AddProductDView({
   const isDirty = title.trim().length > 0 || price.trim().length > 0 || rawStock.trim().length > 0;
 
   const handleRequestCancel = () => {
-    if (isDirty) {
-      setShowCancelModal(true);
-    } else {
-      onBack();
-    }
+    onBack();
   };
 
   // Missing Fields Tracker
@@ -95,9 +115,21 @@ export function AddProductDView({
   const handleSave = (isDraft = false) => {
     if (!isStep4Done && !isDraft) return;
 
+    // Derive prefix from category
+    const matchedCategory = categoriesList.find((c) => c.name === category);
+    const prefix = matchedCategory?.id
+      ? matchedCategory.id.replace(/^cat-/, "").slice(0, 3).toUpperCase()
+      : category.includes("Blox")
+      ? "BF"
+      : category.includes("Defenders")
+      ? "AD"
+      : category.includes("Dice")
+      ? "ADR"
+      : "KZ";
+
     const generatedCode =
       sku.trim() ||
-      `${category === "Blox Fruits" ? "BF" : category === "Anime Defenders" ? "AD" : "KZ"}-${Date.now().toString().slice(-4)}`;
+      `${prefix}-${Date.now().toString().slice(-4)}`;
 
     const newProd: GraphiteProduct = {
       id: initialProduct?.id || `p-${Date.now()}`,
@@ -115,21 +147,6 @@ export function AddProductDView({
 
   return (
     <div className="space-y-6 animate-in fade-in duration-200">
-      {/* 2-Step Cancel Confirmation Modal */}
-      <HardConfirmModal
-        isOpen={showCancelModal}
-        title="ยืนยันการยกเลิกการแก้ไขข้อมูลสินค้า"
-        description="คุณมีข้อมูลที่กรอกค้างไว้ในแบบฟอร์ม หากกดยกเลิก ข้อมูลที่กรอกทั้งหมดรวมถึงรายการสต็อกไอดีจะไม่ถูกบันทึกเข้าสู่ระบบ"
-        expectedKeyword="DISCARD"
-        confirmLabel="ละทิ้งข้อมูลและออก"
-        variant="warning"
-        onConfirm={() => {
-          setShowCancelModal(false);
-          onBack();
-        }}
-        onCancel={() => setShowCancelModal(false)}
-      />
-
       {/* 5.1 Header & Back link */}
       <div className="space-y-4 pb-2 border-b border-zinc-800">
         <button
@@ -309,10 +326,20 @@ export function AddProductDView({
                   onChange={(e) => setCategory(e.target.value)}
                   className="w-full h-11 px-4 rounded-lg bg-zinc-950 border border-zinc-800 text-white text-sm focus:outline-none focus:border-amber-500 focus:ring-1 focus:ring-amber-500 transition-all cursor-pointer"
                 >
-                  <option value="Blox Fruits">Blox Fruits</option>
-                  <option value="Anime Defenders">Anime Defenders</option>
-                  <option value="Anime Dice / RNG">Anime Dice / RNG</option>
-                  <option value="อื่น ๆ">อื่น ๆ</option>
+                  {categoriesList.length > 0 ? (
+                    categoriesList.map((c) => (
+                      <option key={c.id} value={c.name}>
+                        {c.name} {c.status === "OUT_OF_STOCK" ? "(ซ่อนหน้าร้าน)" : ""}
+                      </option>
+                    ))
+                  ) : (
+                    <>
+                      <option value="ไก่ตัน Blox Fruits ขั้นเทพ">ไก่ตัน Blox Fruits ขั้นเทพ</option>
+                      <option value="Anime Defenders / Vanguards">Anime Defenders / Vanguards</option>
+                      <option value="Anime Dice / สุ่มเต๋า">Anime Dice / สุ่มเต๋า</option>
+                      <option value="อื่น ๆ">อื่น ๆ</option>
+                    </>
+                  )}
                 </select>
               </div>
             </div>

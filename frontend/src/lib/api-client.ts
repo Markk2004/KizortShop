@@ -2,7 +2,10 @@
  * The only place that talks to the backend.
  * Feature `api.ts` files call these helpers; components never call fetch directly.
  */
-const BASE_URL = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:4000/api/v1";
+const BASE_URL =
+  process.env.NEXT_PUBLIC_API_URL ??
+  process.env.NEXT_PUBLIC_API_BASE_URL ??
+  "http://localhost:4000/api/v1";
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {

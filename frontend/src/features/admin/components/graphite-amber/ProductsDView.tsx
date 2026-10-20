@@ -1,7 +1,7 @@
 "use client";
 
 import React, { useState } from "react";
-import { Plus, Check, AlertCircle } from "lucide-react";
+import { Plus, Check, AlertCircle, Trash2 } from "lucide-react";
 import { formatBaht } from "@/lib/format";
 import {
   AdminSmartFilterBar,
@@ -24,6 +24,7 @@ interface ProductsDViewProps {
   onToggleStatus: (product: GraphiteProduct) => void;
   onOpenAddModal: () => void;
   onEditProduct: (product: GraphiteProduct) => void;
+  onDeleteProduct: (product: GraphiteProduct) => void;
 }
 
 export function ProductsDView({
@@ -31,10 +32,14 @@ export function ProductsDView({
   onToggleStatus,
   onOpenAddModal,
   onEditProduct,
+  onDeleteProduct,
 }: ProductsDViewProps) {
   const [filterMode, setFilterMode] = useState<"ALL" | "AVAILABLE" | "OUT_OF_STOCK">("ALL");
+  const [categoryFilter, setCategoryFilter] = useState<string>("ALL");
   const [searchQuery, setSearchQuery] = useState("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
+
+  const availableCategories = Array.from(new Set(products.map((p) => p.category))).filter(Boolean);
 
   const totalAll = products.length;
   const totalAvailable = products.filter((p) => p.status === "AVAILABLE" && p.stock > 0).length;
@@ -44,6 +49,7 @@ export function ProductsDView({
     const isAvail = p.status === "AVAILABLE" && p.stock > 0;
     if (filterMode === "AVAILABLE" && !isAvail) return false;
     if (filterMode === "OUT_OF_STOCK" && isAvail) return false;
+    if (categoryFilter !== "ALL" && p.category !== categoryFilter) return false;
 
     if (!searchQuery.trim()) return true;
     const q = searchQuery.toLowerCase().trim();
@@ -91,6 +97,23 @@ export function ProductsDView({
         totalMatched={filteredProducts.length}
         totalAll={totalAll}
       >
+        {/* Category Dropdown Filter */}
+        {availableCategories.length > 0 && (
+          <select
+            value={categoryFilter}
+            onChange={(e) => setCategoryFilter(e.target.value)}
+            className="h-10 px-3 rounded-lg bg-zinc-950 border border-zinc-800 text-xs font-mono text-zinc-300 focus:outline-none focus:border-amber-500 cursor-pointer"
+            aria-label="กรองตามหมวดหมู่"
+          >
+            <option value="ALL">ทุกหมวดหมู่ ({availableCategories.length})</option>
+            {availableCategories.map((cat) => (
+              <option key={cat} value={cat}>
+                {cat}
+              </option>
+            ))}
+          </select>
+        )}
+
         {/* Filter Pills with Live Counts */}
         <div
           className="flex items-center gap-1 p-1 rounded-lg bg-zinc-950 border border-zinc-800"
@@ -240,6 +263,17 @@ export function ProductsDView({
                     className="h-10 px-4 rounded-lg border border-zinc-700 hover:border-amber-500/60 bg-zinc-950 hover:bg-zinc-800 text-zinc-200 hover:text-amber-400 text-xs font-medium transition-colors cursor-pointer"
                   >
                     แก้ไข
+                  </button>
+
+                  {/* Delete Button (40px high) */}
+                  <button
+                    type="button"
+                    onClick={() => onDeleteProduct(product)}
+                    title="นำสินค้าออกจากระบบ"
+                    className="h-10 px-3.5 rounded-lg border border-zinc-700 hover:border-red-500/60 bg-zinc-950 hover:bg-red-500/10 text-zinc-400 hover:text-red-400 text-xs font-medium transition-colors cursor-pointer flex items-center gap-1.5"
+                  >
+                    <Trash2 className="w-3.5 h-3.5" />
+                    <span>นำออก</span>
                   </button>
                 </div>
               </div>

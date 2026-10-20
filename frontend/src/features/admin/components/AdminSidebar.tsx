@@ -13,6 +13,7 @@ import {
   Layers,
   LayoutDashboard,
   Package,
+  Receipt,
   ShieldAlert,
   ShieldCheck,
   Tag,
@@ -58,6 +59,13 @@ const adminNavSections: AdminNavSection[] = [
     sectionKey: "FINANCE",
     title: "การเงิน & ชำระเงิน // 02",
     items: [
+      {
+        label: "บันทึกค่าใช้จ่าย & กำไรขาดทุน",
+        href: "/admin/expense",
+        icon: Receipt,
+        badge: "Real-time",
+        badgeVariant: "emerald",
+      },
       {
         label: "ตรวจสอบการเติมเงิน",
         href: "/admin/topups",
