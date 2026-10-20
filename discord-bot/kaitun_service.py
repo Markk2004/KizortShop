@@ -246,3 +246,7 @@ class KaitunService:
             map_query=map_query,
             limit=limit,
         )
+
+    def delete_account(self, username: str) -> bool:
+        """นำไอดีออกจากคลังสต็อก (ลบออกจากฐานข้อมูล)"""
+        return self.database.delete_kaitun_account(username.strip())

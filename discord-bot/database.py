@@ -96,6 +96,7 @@ class Database:
             )
             if resp.status_code == 200 and resp.json():
                 rows = resp.json()
+                # Prefer user's real product first so stock count increments on their product
                 for r in rows:
                     if r.get("code") != "KAITUN-VAULT-POOL":
                         self._default_product_id = r["id"]
@@ -501,12 +502,26 @@ class Database:
                     available_count += 1
                     inventory_value += price
 
-            net_profit = total_revenue - total_cost
+            # Fetch expenses from Supabase
+            total_expenses = 0.0
+            try:
+                resp_exp = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/Expense?select=amount",
+                    headers=self._supabase_headers,
+                    timeout=5
+                )
+                if resp_exp.status_code == 200:
+                    total_expenses = sum(float(e.get("amount") or 0.0) for e in resp_exp.json())
+            except Exception:
+                pass
+
+            net_profit = total_revenue - total_cost - total_expenses
             margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 100.0
 
             return {
                 "total_revenue": total_revenue,
                 "total_cost": total_cost,
+                "operating_expenses": total_expenses,
                 "net_profit": net_profit,
                 "profit_margin": round(margin, 1),
                 "inventory_value": inventory_value,
@@ -516,6 +531,63 @@ class Database:
         except Exception as e:
             logger.error("Error getting financial stats: %s", e)
             return {}
+
+    def add_expense(
+        self,
+        title: str,
+        amount: float,
+        category: str = "OTHER",
+        note: Optional[str] = None
+    ) -> Optional[Dict[str, Any]]:
+        now_iso = datetime.now(timezone.utc).isoformat()
+        payload = {
+            "title": title.strip(),
+            "amount": float(amount),
+            "category": category.strip().upper(),
+            "note": note.strip() if note else None,
+            "paidAt": now_iso,
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+        }
+        try:
+            resp = requests.post(
+                f"{SUPABASE_URL}/rest/v1/Expense",
+                headers={**self._supabase_headers, "Prefer": "return=representation"},
+                data=json.dumps(payload),
+                timeout=5
+            )
+            if resp.status_code in (200, 201):
+                data = resp.json()
+                return data[0] if isinstance(data, list) and len(data) > 0 else payload
+            logger.error("Failed to add expense to Supabase: %s %s", resp.status_code, resp.text)
+        except Exception as e:
+            logger.error("Error adding expense: %s", e)
+        return None
+
+    def list_expenses(self, limit: int = 15) -> List[Dict[str, Any]]:
+        try:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/Expense?order=paidAt.desc&limit={limit}&select=*",
+                headers=self._supabase_headers,
+                timeout=5
+            )
+            if resp.status_code == 200:
+                return resp.json()
+        except Exception as e:
+            logger.error("Error listing expenses: %s", e)
+        return []
+
+    def delete_expense(self, expense_id: str) -> bool:
+        try:
+            resp = requests.delete(
+                f"{SUPABASE_URL}/rest/v1/Expense?id=eq.{expense_id}",
+                headers=self._supabase_headers,
+                timeout=5
+            )
+            return resp.status_code in (200, 204)
+        except Exception as e:
+            logger.error("Error deleting expense: %s", e)
+            return False
 
     def dispense_kaitun(self, count: int, user_id: int) -> List[Dict[str, Any]]:
         if self._is_test_env:

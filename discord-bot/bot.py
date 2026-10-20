@@ -462,10 +462,13 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
         self.add_item(self.status_input)
 
     async def on_submit(self, interaction: discord.Interaction):
+        # 1. Immediate deferral to prevent Discord 3-second timeout (Error 10062)
+        await interaction.response.defer(ephemeral=False)
+
         u = self.username_input.value.strip()
         acc = self.kaitun_service.get_account(u)
         if not acc:
-            await interaction.response.send_message(
+            await interaction.followup.send(
                 f"❌ ไม่พบไอดี `{u}` ในระบบ กรุณาตรวจสอบชื่อ Username อีกครั้ง",
                 ephemeral=True,
             )
@@ -482,14 +485,14 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
             price=self.price_input.value.strip(),
         )
 
-        acc_updated = self.kaitun_service.get_account(u)
+        acc_updated = self.kaitun_service.get_account(u) or acc
         embed = discord.Embed(
             title=f"✅ อัปเดตข้อมูลไอดีเรียบร้อย: {u}",
             color=discord.Color.green(),
         )
         embed.add_field(
             name="🏷️ สถานะการขาย",
-            value="🔴 **ขายแล้ว (Sold)**" if acc_updated["sale_status"] == "sold" else "🟢 **ยังไม่ขาย (Unsold)**",
+            value="🔴 **ขายแล้ว (Sold)**" if acc_updated.get("sale_status") == "sold" else "🟢 **ยังไม่ขาย (Unsold)**",
             inline=True,
         )
         if acc_updated.get("price"):
@@ -505,7 +508,153 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
             inline=False,
         )
         embed.set_footer(text=f"อัปเดตผ่านฟอร์มโดย {interaction.user.name} • {datetime.now().strftime('%H:%M:%S')}")
-        await interaction.response.send_message(embed=embed)
+        await interaction.followup.send(embed=embed)
+
+
+EXPENSE_CAT_MAP = {
+    "SCRIPT": {"label": "ค่าสคริปต์ฟาร์ม", "emoji": "📜"},
+    "VPS": {"label": "ค่า VPS / เซิร์ฟเวอร์", "emoji": "💻"},
+    "ELECTRICITY": {"label": "ค่าไฟ / ฮาร์ดแวร์", "emoji": "⚡"},
+    "BOT_HOST": {"label": "ค่าโฮสต์บอท Discord", "emoji": "🤖"},
+    "OTHER": {"label": "รายจ่ายอื่นๆ", "emoji": "📦"},
+}
+
+
+class ExpenseModal(discord.ui.Modal):
+    def __init__(self, db: Database, category: str = "OTHER"):
+        cat_info = EXPENSE_CAT_MAP.get(category, {"label": "รายจ่ายทั่วไป", "emoji": "💸"})
+        super().__init__(title=f"💸 บันทึก: {cat_info['label'][:25]}")
+        self.db = db
+        self.category = category
+
+        self.title_input = discord.ui.TextInput(
+            label="ชื่อรายการค่าใช้จ่าย (Title)",
+            placeholder="เช่น ค่าสคริปต์ฟาร์มประจำเดือน, ค่า VPS, ค่าไฟ",
+            required=True,
+            max_length=100,
+        )
+        self.amount_input = discord.ui.TextInput(
+            label="จำนวนเงิน (บาท / THB)",
+            placeholder="เช่น 150 หรือ 300.50",
+            required=True,
+            max_length=20,
+        )
+        self.category_input = discord.ui.TextInput(
+            label="หมวดหมู่ (SCRIPT / VPS / ELECTRICITY / ...)",
+            default=category,
+            required=True,
+            max_length=30,
+        )
+        self.note_input = discord.ui.TextInput(
+            label="หมายเหตุเพิ่มเติม (เว้นว่างได้)",
+            placeholder="เช่น ซื้อจากร้าน Dev XYZ หรือ รอบบิล 20 ต.ค.",
+            style=discord.TextStyle.paragraph,
+            required=False,
+            max_length=500,
+        )
+
+        self.add_item(self.title_input)
+        self.add_item(self.amount_input)
+        self.add_item(self.category_input)
+        self.add_item(self.note_input)
+
+    async def on_submit(self, interaction: discord.Interaction):
+        await interaction.response.defer(ephemeral=False)
+        title = self.title_input.value.strip()
+        raw_amt = self.amount_input.value.strip()
+        cat = self.category_input.value.strip().upper() or self.category
+        note = self.note_input.value.strip() or None
+
+        import re
+        nums = re.findall(r"[\d.]+", raw_amt)
+        if not nums:
+            await interaction.followup.send("❌ กรุณาระบุจำนวนเงินเป็นตัวเลขที่ถูกต้อง (เช่น `150`)", ephemeral=True)
+            return
+
+        try:
+            amt = float(nums[0])
+        except Exception:
+            await interaction.followup.send("❌ จำนวนเงินไม่ถูกต้อง", ephemeral=True)
+            return
+
+        exp = self.db.add_expense(title=title, amount=amt, category=cat, note=note)
+        if not exp:
+            await interaction.followup.send("❌ ไม่สามารถบันทึกค่าใช้จ่ายลงฐานข้อมูลได้", ephemeral=True)
+            return
+
+        cat_info = EXPENSE_CAT_MAP.get(cat, {"label": cat, "emoji": "💸"})
+        embed = discord.Embed(
+            title=f"💸 บันทึกค่าใช้จ่ายร้านสำเร็จ: {title}",
+            description="บันทึกข้อมูลเข้าสู่ฐานข้อมูลและหักลบจากกำไรสุทธิบนหน้าเว็บเรียบร้อยแล้ว",
+            color=discord.Color.gold(),
+        )
+        embed.add_field(name="💰 จำนวนเงิน", value=f"**฿{amt:,.2f}**", inline=True)
+        embed.add_field(name="🏷️ หมวดหมู่", value=f"{cat_info['emoji']} `{cat_info['label']}`", inline=True)
+        if note:
+            embed.add_field(name="📝 หมายเหตุ", value=f"```{note}```", inline=False)
+        embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บ /admin/accounting ทันที")
+
+        await interaction.followup.send(embed=embed)
+
+
+class ExpenseCategorySelect(discord.ui.Select):
+    def __init__(self, db: Database):
+        self.db = db
+        options = [
+            discord.SelectOption(
+                label="ค่าสคริปต์ฟาร์ม",
+                value="SCRIPT",
+                emoji="📜",
+                description="สคริปต์ฟาร์มออโต้รายเดือน/รายวัน",
+            ),
+            discord.SelectOption(
+                label="ค่า VPS / Cloud Server",
+                value="VPS",
+                emoji="💻",
+                description="ค่าเครื่องรันฟาร์ม VPS หรือ Cloud",
+            ),
+            discord.SelectOption(
+                label="ค่าไฟ / อุปกรณ์ฮาร์ดแวร์",
+                value="ELECTRICITY",
+                emoji="⚡",
+                description="ค่าไฟฟาร์ม, อุปกรณ์คอมพิวเตอร์",
+            ),
+            discord.SelectOption(
+                label="ค่าโฮสต์บอท Discord",
+                value="BOT_HOST",
+                emoji="🤖",
+                description="ค่าเซิร์ฟเวอร์รันบอท Discord",
+            ),
+            discord.SelectOption(
+                label="รายจ่ายอื่นๆ ของร้าน",
+                value="OTHER",
+                emoji="📦",
+                description="ค่าใช้จ่ายเบ็ดเตล็ดอื่นๆ",
+            ),
+        ]
+        super().__init__(
+            placeholder="👇 เลือกหมวดหมู่ค่าใช้จ่ายเพื่อเปิดฟอร์มกรอก...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_cat = self.values[0]
+        modal = ExpenseModal(db=self.db, category=selected_cat)
+        await interaction.response.send_modal(modal)
+
+
+class ExpenseInteractiveView(discord.ui.View):
+    def __init__(self, db: Database):
+        super().__init__(timeout=180)
+        self.db = db
+        self.add_item(ExpenseCategorySelect(db=db))
+
+    @discord.ui.button(label="กรอกฟอร์มด่วน (ค่าใช้จ่ายทั่วไป)", style=discord.ButtonStyle.secondary, emoji="📝")
+    async def quick_form_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = ExpenseModal(db=self.db, category="OTHER")
+        await interaction.response.send_modal(modal)
 
 
 def build_ticket_panel_embed() -> discord.Embed:
@@ -1735,6 +1884,44 @@ class KeyValidationBot(discord.Client):
                     ephemeral=ephemeral,
                 )
 
+        # Command: /stock_remove (นำไอดีออกจากสต็อก)
+        @self.tree.command(
+            name="stock_remove",
+            description="นำไอดีออกจากคลังสต็อก (ลบออกจากระบบ Supabase)",
+        )
+        @app_commands.describe(
+            username="ชื่อไอดี Roblox ที่ต้องการนำออก",
+        )
+        async def stock_remove_cmd(
+            interaction: discord.Interaction,
+            username: str,
+        ):
+            target_u = username.strip()
+            acc = self.kaitun_service.get_account(target_u)
+            if not acc:
+                await interaction.response.send_message(
+                    f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก",
+                    ephemeral=True,
+                )
+                return
+
+            ok = self.kaitun_service.delete_account(target_u)
+            if ok:
+                embed = discord.Embed(
+                    title=f"🗑️ นำไอดีออกจากสต็อกสำเร็จ: {acc['username']}",
+                    description=f"ระบบได้ลบไอดี `{acc['username']}` ออกจากสต็อกเรียบร้อยแล้ว",
+                    color=discord.Color.red(),
+                )
+                embed.add_field(name="👤 ชื่อไอดี (Username)", value=f"`{acc['username']}`", inline=True)
+                embed.add_field(name="📦 รหัสอ้างอิง", value=f"`{acc.get('serial_code') or acc.get('id', '-')}`", inline=True)
+                embed.set_footer(text=f"นำออกโดย {interaction.user.name} • ซิงค์ Supabase เรียบร้อย")
+                await interaction.response.send_message(embed=embed)
+            else:
+                await interaction.response.send_message(
+                    f"❌ ไม่สามารถนำไอดี `{target_u}` ออกจากระบบได้",
+                    ephemeral=True,
+                )
+
         # Command: /stock_update (เปิดฟอร์ม Modal Tab สำหรับกรอกและอัปเดตข้อมูลไอดี)
         @self.tree.command(
             name="stock_update",
@@ -1945,6 +2132,139 @@ class KeyValidationBot(discord.Client):
             result_embed.add_field(name="[ห้องที่ดำเนินการสำเร็จ]", value="\n".join(posted_channels) if posted_channels else "ไม่มี", inline=False)
             await interaction.followup.send(embed=result_embed, ephemeral=True)
 
+        # Command: /accounting (Admin only)
+        @self.tree.command(
+            name="accounting",
+            description="สรุปบัญชีการเงิน: ยอดขาย ต้นทุน กำไรสุทธิ และมูลค่าสต็อกคงเหลือ",
+        )
+        @app_commands.default_permissions(administrator=True)
+        async def accounting_cmd(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+            stats = self.db.get_financial_stats()
+
+            revenue = stats.get("total_revenue", 0.0)
+            cost = stats.get("total_cost", 0.0)
+            expenses = stats.get("operating_expenses", 0.0)
+            profit = stats.get("net_profit", 0.0)
+            margin = stats.get("profit_margin", 100.0)
+            inv_val = stats.get("inventory_value", 0.0)
+            sold = stats.get("sold_count", 0)
+            avail = stats.get("available_count", 0)
+
+            embed = discord.Embed(
+                title="📊 สรุปบัญชีการเงิน KaiZort (Cost & Profit Accounting)",
+                description="คำนวณจากยอดขายจริง ต้นทุนไอดี และค่าใช้จ่ายร้านใน Supabase Database",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="💰 ยอดขายจริงรวม", value=f"฿{revenue:,.2f} ({sold} บัญชี)", inline=True)
+            embed.add_field(name="📦 ต้นทุนไอดี (COGS)", value=f"฿{cost:,.2f}", inline=True)
+            embed.add_field(name="⚡ ค่าใช้จ่ายร้าน", value=f"฿{expenses:,.2f}", inline=True)
+            embed.add_field(name="📈 กำไรสุทธิแท้จริง", value=f"**+฿{profit:,.2f}** ({margin}%)", inline=True)
+            embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
+            embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
+            embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • ตรวจสอบโดย KaiZort Admin")
+
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
+        # Command: /expense (Admin only - Interactive Modal Form with Dropdown)
+        @self.tree.command(
+            name="expense",
+            description="เปิดฟอร์มบันทึกค่าใช้จ่ายร้าน (มีเมนู Dropdown เลือกหมวดหมู่เหมือนบนเว็บ)",
+        )
+        @app_commands.default_permissions(administrator=True)
+        async def expense_cmd(interaction: discord.Interaction):
+            embed = discord.Embed(
+                title="💸 บันทึกค่าใช้จ่ายร้าน (Store Operating Expenses)",
+                description=(
+                    "เลือกหมวดหมู่ค่าใช้จ่ายจากเมนู **Dropdown** ด้านล่างเพื่อเปิดแบบฟอร์มกรอกข้อมูล:\n\n"
+                    "• 📜 **ค่าสคริปต์ฟาร์ม** (`SCRIPT`)\n"
+                    "• 💻 **ค่า VPS / เซิร์ฟเวอร์** (`VPS`)\n"
+                    "• ⚡ **ค่าไฟ / ฮาร์ดแวร์** (`ELECTRICITY`)\n"
+                    "• 🤖 **ค่าโฮสต์บอท Discord** (`BOT_HOST`)\n"
+                    "• 📦 **รายจ่ายอื่นๆ** (`OTHER`)\n\n"
+                    "*(ข้อมูลจะถูกนำไปหักลบจากกำไรสุทธิบนหน้าเว็บ /admin/accounting ทันที)*"
+                ),
+                color=discord.Color.gold(),
+            )
+            embed.set_footer(text="ระบบบัญชีร้าน KaiZort • Real-Time Sync")
+            view = ExpenseInteractiveView(db=self.db)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
+
+        # Command: /expense_add (Admin only)
+        @self.tree.command(
+            name="expense_add",
+            description="บันทึกค่าใช้จ่ายร้าน (เช่น ค่าสคริปต์, ค่า VPS, ค่าไฟ) เพื่อหักลบกำไร",
+        )
+        @app_commands.describe(
+            title="ชื่อรายการค่าใช้จ่าย (เช่น ค่าสคริปต์รายเดือน, ค่า VPS, ค่าไฟ)",
+            amount="จำนวนเงิน (บาท)",
+            category="หมวดหมู่ค่าใช้จ่าย",
+            note="หมายเหตุเพิ่มเติม (ถ้ามี)",
+        )
+        @app_commands.choices(
+            category=[
+                app_commands.Choice(name="📜 ค่าสคริปต์ฟาร์ม (SCRIPT)", value="SCRIPT"),
+                app_commands.Choice(name="💻 ค่า VPS / Cloud (VPS)", value="VPS"),
+                app_commands.Choice(name="⚡ ค่าไฟ / ฮาร์ดแวร์ (ELECTRICITY)", value="ELECTRICITY"),
+                app_commands.Choice(name="🤖 ค่าโฮสต์บอท (BOT_HOST)", value="BOT_HOST"),
+                app_commands.Choice(name="📦 รายจ่ายอื่นๆ (OTHER)", value="OTHER"),
+            ]
+        )
+        @app_commands.default_permissions(administrator=True)
+        async def expense_add_cmd(
+            interaction: discord.Interaction,
+            title: str,
+            amount: float,
+            category: Optional[app_commands.Choice[str]] = None,
+            note: Optional[str] = None,
+        ):
+            await interaction.response.defer(ephemeral=False)
+            cat_val = category.value if category else "OTHER"
+            exp = self.db.add_expense(title=title, amount=amount, category=cat_val, note=note)
+            if not exp:
+                await interaction.followup.send("❌ เกิดข้อผิดพลาด ไม่สามารถบันทึกค่าใช้จ่ายได้", ephemeral=True)
+                return
+
+            embed = discord.Embed(
+                title=f"💸 บันทึกค่าใช้จ่ายร้านสำเร็จ: {title}",
+                description=f"บันทึกข้อมูลเข้าสู่ฐานข้อมูลและหักลบจากกำไรสุทธิบนหน้าเว็บเรียบร้อยแล้ว",
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="💰 จำนวนเงิน", value=f"**฿{amount:,.2f}**", inline=True)
+            embed.add_field(name="🏷️ หมวดหมู่", value=f"`{cat_val}`", inline=True)
+            if note:
+                embed.add_field(name="📝 หมายเหตุ", value=f"`{note}`", inline=False)
+            embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บทันที")
+            await interaction.followup.send(embed=embed)
+
+        # Command: /expense_list (Admin only)
+        @self.tree.command(
+            name="expense_list",
+            description="แสดงรายการค่าใช้จ่ายร้านล่าสุดและยอดรวมทั้งหมด",
+        )
+        @app_commands.default_permissions(administrator=True)
+        async def expense_list_cmd(interaction: discord.Interaction):
+            await interaction.response.defer(ephemeral=True)
+            expenses = self.db.list_expenses(limit=15)
+            if not expenses:
+                await interaction.followup.send("📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ", ephemeral=True)
+                return
+
+            total = sum(float(e.get("amount") or 0.0) for e in expenses)
+            lines = []
+            for i, e in enumerate(expenses):
+                d_str = e.get("paidAt", "")[:10]
+                lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} (`{e.get('category','OTHER')}`) • {d_str}")
+
+            embed = discord.Embed(
+                title=f"📋 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
+                description="\n".join(lines),
+                color=discord.Color.gold(),
+            )
+            embed.add_field(name="⚡ ยอดค่าใช้จ่ายรวม", value=f"**฿{total:,.2f}**", inline=False)
+            embed.set_footer(text="จัดการค่าใช้จ่ายเพิ่มเติมได้ที่หน้าเว็บ /admin/accounting")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+
         # Command: /ticket_panel (Admin only)
         @self.tree.command(
             name="ticket_panel",
@@ -2146,6 +2466,68 @@ class KeyValidationBot(discord.Client):
         # 6. Special handler for #kaitun-id channel
         if "kaitun" in channel_name or channel_id == 1561017098094772264:
 
+            # 1.5 Expense Quick Text Trigger
+            if lower_msg in ["รายจ่าย", "ค่าใช้จ่าย", "expense", "expenses", "เช็ครายจ่าย", "ดูรายจ่าย"]:
+                expenses = self.db.list_expenses(limit=15)
+                if not expenses:
+                    await message.reply("📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ (พิมพ์ `จ่าย <รายการ> <จำนวนเงิน>` เพื่อบันทึก)")
+                    return
+                total = sum(float(e.get("amount") or 0.0) for e in expenses)
+                lines = [f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} (`{e.get('category','OTHER')}`)" for i, e in enumerate(expenses[:12])]
+                embed = discord.Embed(
+                    title=f"💸 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
+                    description="\n".join(lines),
+                    color=discord.Color.gold(),
+                )
+                embed.add_field(name="⚡ ยอดรวมค่าใช้จ่าย", value=f"**฿{total:,.2f}**", inline=False)
+                embed.set_footer(text="พิมพ์ 'จ่าย <รายการ> <จำนวน>' เพื่อเพิ่มค่าใช้จ่าย หรือดูที่เว็บ /admin/accounting")
+                await message.reply(embed=embed)
+                return
+
+            if lower_msg.startswith("จ่าย ") or lower_msg.startswith("รายจ่าย ") or lower_msg.startswith("expense "):
+                parts = raw_msg.split()
+                if len(parts) >= 3:
+                    amount = None
+                    import re
+                    nums = re.findall(r"[\d.]+", parts[-1])
+                    if nums:
+                        try:
+                            amount = float(nums[0])
+                            title = " ".join(parts[1:-1])
+                        except Exception:
+                            amount = None
+
+                    if not amount:
+                        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:บาท|thb)?$", raw_msg, re.IGNORECASE)
+                        if m:
+                            amount = float(m.group(1))
+                            title = raw_msg[len(parts[0]):m.start()].strip()
+
+                    if amount and title:
+                        cat = "OTHER"
+                        lt = title.lower()
+                        if any(k in lt for k in ["สคริปต์", "script"]):
+                            cat = "SCRIPT"
+                        elif any(k in lt for k in ["vps", "server", "เซิร์ฟ", "cloud"]):
+                            cat = "VPS"
+                        elif any(k in lt for k in ["ไฟ", "เน็ต", "คอม", "ฮาร์ดแวร์"]):
+                            cat = "ELECTRICITY"
+                        elif any(k in lt for k in ["บอท", "bot"]):
+                            cat = "BOT_HOST"
+
+                        exp = self.db.add_expense(title=title, amount=amount, category=cat)
+                        if exp:
+                            embed = discord.Embed(
+                                title=f"💸 บันทึกค่าใช้จ่ายร้านเรียบร้อย: {title}",
+                                description=f"บันทึกยอดเงินเข้าสู่ฐานข้อมูล และหักลบจากกำไรสุทธิบนหน้าเว็บอัตโนมัติ",
+                                color=discord.Color.gold(),
+                            )
+                            embed.add_field(name="💰 จำนวนเงิน", value=f"**฿{amount:,.2f}**", inline=True)
+                            embed.add_field(name="🏷️ หมวดหมู่", value=f"`{cat}`", inline=True)
+                            embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับหน้าเว็บ /admin/accounting ทันที")
+                            await message.reply(embed=embed)
+                            return
+
             # 2. Gen command
             if lower_msg.startswith("gen ") or lower_msg == "gen" or lower_msg.startswith("สุ่ม"):
                 parts = raw_msg.split()
@@ -2240,6 +2622,41 @@ class KeyValidationBot(discord.Client):
                 await message.reply(embed=embed)
                 return
 
+            # 3.5. Remove Account Command: นำออก <username> / ลบ <username> / del <username> / remove <username>
+            if (
+                lower_msg.startswith("นำออก ")
+                or lower_msg.startswith("ลบ ")
+                or lower_msg.startswith("del ")
+                or lower_msg.startswith("remove ")
+                or lower_msg.startswith("rm ")
+            ):
+                parts = raw_msg.split()
+                if len(parts) >= 2:
+                    target_u = parts[1].strip()
+                    acc = self.kaitun_service.get_account(target_u)
+                    if not acc:
+                        await message.reply(f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก")
+                        return
+
+                    ok = self.kaitun_service.delete_account(target_u)
+                    if ok:
+                        embed = discord.Embed(
+                            title=f"🗑️ นำไอดีออกจากสต็อกสำเร็จ: {acc['username']}",
+                            description=f"ระบบได้นำไอดี `{acc['username']}` ออกจากคลังสต็อกเรียบร้อยแล้ว",
+                            color=discord.Color.red(),
+                        )
+                        embed.add_field(name="👤 ชื่อไอดี (Username)", value=f"`{acc['username']}`", inline=True)
+                        embed.add_field(
+                            name="📦 รหัสอ้างอิง",
+                            value=f"`{acc.get('serial_code') or acc.get('id', '-')}`",
+                            inline=True,
+                        )
+                        embed.set_footer(text=f"ดำเนินการโดย {message.author.name} • ซิงค์ Supabase ทันที")
+                        await message.reply(embed=embed)
+                    else:
+                        await message.reply(f"❌ เกิดข้อผิดพลาด ไม่สามารถนำไอดี `{target_u}` ออกจากระบบได้")
+                    return
+
             # 4. Account Info: info <username> / ดู <username> / เช็ค <username> / id <username>
             if (
                 lower_msg.startswith("info ")
@@ -2288,6 +2705,58 @@ class KeyValidationBot(discord.Client):
                         inline=False,
                     )
                     embed.set_footer(text=f"เพิ่มเมื่อ: {acc.get('added_at', '')[:16].replace('T', ' ')}")
+                    await message.reply(embed=embed)
+                    return
+
+            # 4.5 Direct Sale Status Shortcuts: ขายแล้ว <username> / ขาย <username> / พร้อมขาย <username>
+            if lower_msg.startswith("ขายแล้ว ") or lower_msg.startswith("ขาย "):
+                parts = raw_msg.split()
+                if len(parts) >= 2:
+                    target_u = parts[1].strip()
+                    acc = self.kaitun_service.get_account(target_u)
+                    if not acc:
+                        await message.reply(f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก")
+                        return
+
+                    self.kaitun_service.update_account(
+                        username=target_u,
+                        sale_status="sold",
+                    )
+                    acc_updated = self.kaitun_service.get_account(target_u) or acc
+                    embed = discord.Embed(
+                        title=f"✅ ปรับสถานะไอดีเป็น 'ขายแล้ว' เรียบร้อย: {target_u}",
+                        description=f"อัปเดตสถานะในระบบและซิงค์ข้อมูลกับหน้าเว็บเรียบร้อยแล้ว",
+                        color=discord.Color.red(),
+                    )
+                    embed.add_field(name="🏷️ สถานะ", value="🔴 **ขายแล้ว (Sold)**", inline=True)
+                    if acc_updated.get("price"):
+                        embed.add_field(name="💰 ราคาขาย", value=f"`{acc_updated['price']}`", inline=True)
+                    if acc_updated.get("farmed_maps"):
+                        embed.add_field(name="🗺️ แมพ", value=f"`{acc_updated['farmed_maps']}`", inline=True)
+                    embed.set_footer(text=f"อัปเดตโดย {message.author.name} • ซิงค์กับหน้าเว็บทันที")
+                    await message.reply(embed=embed)
+                    return
+
+            if lower_msg.startswith("พร้อมขาย ") or lower_msg.startswith("ยังไม่ขาย "):
+                parts = raw_msg.split()
+                if len(parts) >= 2:
+                    target_u = parts[1].strip()
+                    acc = self.kaitun_service.get_account(target_u)
+                    if not acc:
+                        await message.reply(f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก")
+                        return
+
+                    self.kaitun_service.update_account(
+                        username=target_u,
+                        sale_status="unsold",
+                    )
+                    embed = discord.Embed(
+                        title=f"✅ ปรับสถานะไอดีกลับเป็น 'พร้อมขาย' เรียบร้อย: {target_u}",
+                        description=f"อัปเดตสถานะในระบบและซิงค์ข้อมูลกับหน้าเว็บเรียบร้อยแล้ว",
+                        color=discord.Color.green(),
+                    )
+                    embed.add_field(name="🏷️ สถานะ", value="🟢 **พร้อมขาย (Available)**", inline=True)
+                    embed.set_footer(text=f"อัปเดตโดย {message.author.name} • ซิงค์กับหน้าเว็บทันที")
                     await message.reply(embed=embed)
                     return
 
