@@ -266,3 +266,17 @@ model WebhookChannelConfig {
 
   @@index([channelKey, isActive])
 }
+
+model Expense {
+  id        String   @id @default(uuid())
+  title     String // เช่น ค่าไฟฟาร์ม, ค่า VPS, ค่าสคริปต์รายเดือน
+  category  String   @default("OTHER") // SCRIPT, VPS, ELECTRICITY, BOT_HOST, OTHER
+  amount    Decimal  @db.Decimal(10, 2)
+  note      String?
+  paidAt    DateTime @default(now())
+  createdAt DateTime @default(now())
+  updatedAt DateTime @updatedAt
+
+  @@index([category, paidAt])
+}
+
