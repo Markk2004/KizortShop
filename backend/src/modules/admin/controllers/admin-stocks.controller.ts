@@ -2,6 +2,7 @@ import {
   BadRequestException,
   Body,
   Controller,
+  Delete,
   Get,
   NotFoundException,
   Param,
@@ -79,6 +80,12 @@ export class AdminStocksController {
               title: true,
               price: true,
               stockMode: true,
+              category: {
+                select: {
+                  id: true,
+                  name: true,
+                },
+              },
             },
           },
           order: {
@@ -102,6 +109,7 @@ export class AdminStocksController {
       productId: s.productId,
       productCode: s.product.code,
       productTitle: s.product.title,
+      categoryName: s.product.category?.name || "",
       stockMode: s.product.stockMode,
       username: s.username || s.maskedIdentity,
       maskedIdentity: s.maskedIdentity,
@@ -149,6 +157,7 @@ export class AdminStocksController {
 
     const product = await this.prisma.product.findUnique({
       where: { id: dto.productId },
+      include: { category: true },
     });
     if (!product) {
       throw new NotFoundException(`Product ${dto.productId} not found`);
@@ -161,7 +170,7 @@ export class AdminStocksController {
     for (let idx = 0; idx < dto.credentials.length; idx++) {
       const rawLine = dto.credentials[idx];
       const lineNum = idx + 1;
-      const inspection = inspectAndHashCredential(rawLine, expectedFormat, this.encryptionSecret);
+      const inspection = inspectAndHashCredential(rawLine, expectedFormat);
       if (!inspection.isValid) {
         errors.push(`บรรทัดที่ ${lineNum}: ${inspection.error}`);
         continue;
@@ -178,8 +187,12 @@ export class AdminStocksController {
         continue;
       }
 
-      const rawParts = rawLine.trim().split(":");
+      const rawParts = rawLine.includes("|")
+        ? rawLine.split("|").map((s) => s.trim())
+        : rawLine.split(":").map((s) => s.trim());
       const rawUsername = rawParts[0]?.trim();
+      const normalizedPlain =
+        rawParts.length >= 2 ? `${rawParts[0]}:${rawParts.slice(1).join(":")}` : rawLine.trim();
       const seqNum = String(Date.now() + idx).slice(-6);
       const skuTag = product.code.replace(/[^A-Z0-9]/gi, "").slice(0, 6).toUpperCase();
 
@@ -189,10 +202,13 @@ export class AdminStocksController {
         credentialFormat: expectedFormat,
         credentialHash: inspection.credentialHash,
         maskedIdentity: inspection.maskedIdentity,
-        credentials: encryptCredentialAes256Gcm(rawLine, this.encryptionSecret),
+        credentials: encryptCredentialAes256Gcm(normalizedPlain, this.encryptionSecret),
         username: rawUsername,
+        farmedMaps: product.category?.name || "",
+        details: product.title,
+        sellingPriceText: product.price ? `${Number(product.price)} บาท` : "",
         batchCode: dto.batchCode || "LOT-DEFAULT",
-        supplierName: dto.supplierName || "Direct_Import",
+        supplierName: dto.supplierName || "ทำเอง (Self-Farmed)",
         costPrice: dto.costPrice || 0,
         addedSource: "WEB",
         status: "AVAILABLE",
@@ -221,6 +237,7 @@ export class AdminStocksController {
       productTitle: product.title,
       batchCode: dto.batchCode,
       supplierName: dto.supplierName,
+      usernames: preparedRecords.map((r) => r.username).filter(Boolean),
     });
 
     return {
@@ -365,6 +382,32 @@ export class AdminStocksController {
       message: "Credential decrypted successfully for audit",
       serialCode: item.serialCode,
       decrypted,
+    };
+  }
+
+  @Delete(":id")
+  async deleteStock(@Param("id") id: string) {
+    const item = await this.prisma.accountStock.findFirst({
+      where: { OR: [{ id }, { serialCode: id }] },
+      include: { product: true },
+    });
+    if (!item) {
+      throw new NotFoundException(`Stock item ${id} not found`);
+    }
+
+    await this.prisma.accountStock.delete({
+      where: { id: item.id },
+    });
+
+    await this.discordWebhook.notifyStockRemoved({
+      serialCode: item.serialCode,
+      username: item.username || item.maskedIdentity,
+      productTitle: item.product?.title,
+    });
+
+    return {
+      message: `Stock item ${item.serialCode} deleted successfully`,
+      data: { id: item.id },
     };
   }
 }

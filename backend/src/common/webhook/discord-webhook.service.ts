@@ -158,23 +158,115 @@ export class DiscordWebhookService {
   }
 
   /**
-   * แจ้งเตือนสต๊อกสินค้า (#web-stock-logs)
+   * แจ้งเตือนสต๊อกสินค้า (#web-stock-logs และ #kaitun-id)
    */
   async notifyStockImport(data: {
     count: number;
     productTitle: string;
     batchCode?: string;
     supplierName?: string;
+    usernames?: string[];
   }) {
+    const fields: DiscordEmbedField[] = [
+      { name: 'สินค้า', value: data.productTitle, inline: false },
+      { name: 'จำนวนที่เพิ่ม', value: `${data.count} บัญชี`, inline: true },
+      { name: 'รหัสล็อต (Batch)', value: data.batchCode ? `\`${data.batchCode}\`` : '-', inline: true },
+      { name: 'ซัพพลายเออร์', value: data.supplierName ? `\`${data.supplierName}\`` : '-', inline: true },
+    ];
+    if (data.usernames && data.usernames.length > 0) {
+      fields.push({
+        name: 'รายชื่อไอดีที่เพิ่ม',
+        value: data.usernames.slice(0, 15).map((u) => `• \`${u}\``).join('\n'),
+        inline: false,
+      });
+    }
+
     await this.sendEmbed('stocks', {
-      title: `[เพิ่มสต๊อกใหม่] นำเข้ารหัสจำนวน ${data.count} บัญชี`,
+      title: `[เพิ่มสต๊อกใหม่จากเว็บ] นำเข้ารหัสจำนวน ${data.count} บัญชี`,
       color: 0x10B981,
-      fields: [
-        { name: 'สินค้า', value: data.productTitle, inline: false },
-        { name: 'จำนวนที่เพิ่ม', value: `${data.count} ชิ้น`, inline: true },
-        { name: 'รหัสล็อต (Batch)', value: data.batchCode ? `\`${data.batchCode}\`` : '-', inline: true },
-        { name: 'ซัพพลายเออร์', value: data.supplierName ? `\`${data.supplierName}\`` : '-', inline: true },
-      ],
+      fields,
+    });
+
+    await this.sendEmbed('kaitun_sync', {
+      title: `[เว็บเพิ่มสต๊อกใหม่] นำเข้า ${data.count} บัญชี เข้าสู่คลัง`,
+      description: `สินค้า: **${data.productTitle}**`,
+      color: 0x10B981,
+      fields,
+    });
+  }
+
+  /**
+   * แจ้งเตือนการลบไอดีออกจากสต๊อก (#web-stock-logs และ #kaitun-id)
+   */
+  async notifyStockRemoved(data: {
+    serialCode: string;
+    username?: string;
+    productTitle?: string;
+  }) {
+    const fields: DiscordEmbedField[] = [
+      { name: 'ชื่อไอดี (Username)', value: `\`${data.username || '-'}\``, inline: true },
+      { name: 'Serial Code', value: `\`${data.serialCode}\``, inline: true },
+      { name: 'สินค้า', value: data.productTitle || '-', inline: false },
+    ];
+
+    await this.sendEmbed('stocks', {
+      title: `[นำไอดีออกจากคลัง] ลบสต๊อก ${data.username || data.serialCode}`,
+      color: 0xEF4444,
+      fields,
+    });
+
+    await this.sendEmbed('kaitun_sync', {
+      title: `[เว็บนำไอดีออก] บัญชี ${data.username || data.serialCode} ถูกลบออกจากสต๊อก`,
+      color: 0xEF4444,
+      fields,
+    });
+  }
+
+  /**
+   * แจ้งเตือนการจัดการหมวดหมู่และสินค้า (#web-catalog)
+   */
+  async notifyCatalogAction(data: {
+    type: 'CATEGORY' | 'PRODUCT';
+    action: 'CREATED' | 'UPDATED' | 'DELETED' | 'STATUS_CHANGED';
+    name: string;
+    code?: string;
+    categoryName?: string;
+    price?: number;
+    stock?: number;
+    status?: string;
+  }) {
+    const typeLabel = data.type === 'CATEGORY' ? 'หมวดหมู่' : 'สินค้า';
+    const actionMap = {
+      CREATED: { label: 'สร้างใหม่', color: 0x10B981 },
+      UPDATED: { label: 'แก้ไขข้อมูล', color: 0x3B82F6 },
+      STATUS_CHANGED: { label: 'เปลี่ยนสถานะ', color: 0xF59E0B },
+      DELETED: { label: 'นำออก/ลบ', color: 0xEF4444 },
+    };
+    const act = actionMap[data.action];
+
+    const fields: DiscordEmbedField[] = [
+      { name: `ชื่อ${typeLabel}`, value: `**${data.name}**`, inline: true },
+    ];
+    if (data.code) {
+      fields.push({ name: 'รหัส/Slug', value: `\`${data.code}\``, inline: true });
+    }
+    if (data.categoryName) {
+      fields.push({ name: 'หมวดหมู่', value: data.categoryName, inline: true });
+    }
+    if (data.price !== undefined) {
+      fields.push({ name: 'ราคา', value: `฿${data.price.toLocaleString()}`, inline: true });
+    }
+    if (data.stock !== undefined) {
+      fields.push({ name: 'สต็อกคงเหลือ', value: `${data.stock} ไอดี`, inline: true });
+    }
+    if (data.status) {
+      fields.push({ name: 'สถานะ', value: `\`${data.status}\``, inline: true });
+    }
+
+    await this.sendEmbed('catalog', {
+      title: `[${act.label}${typeLabel}] ${data.name}`,
+      color: act.color,
+      fields,
     });
   }
 

@@ -93,22 +93,25 @@ export function inspectAndHashCredential(
     };
   }
 
-  const parts = trimmed.split(":");
+  // Support both ":" and "|" delimiter (e.g. user:pass or user | pass)
+  const parts = trimmed.includes("|")
+    ? trimmed.split("|").map((p) => p.trim())
+    : trimmed.split(":").map((p) => p.trim());
   let normalizedPrimaryKey = "";
   let maskedIdentity = "";
 
   if (expectedFormat === "USER_PASS") {
-    if (parts.length < 2 || !parts[0].trim() || !parts[1].trim()) {
+    if (parts.length < 2 || !parts[0] || !parts[1]) {
       return {
         isValid: false,
         format: expectedFormat,
         normalizedPrimaryKey: "",
         maskedIdentity: "",
         credentialHash: "",
-        error: "รูปแบบไม่ถูกต้อง ต้องเป็น USER:PASS คั่นด้วย : อย่างน้อย 2 ส่วน",
+        error: "รูปแบบไม่ถูกต้อง ต้องเป็น USER:PASS หรือ USER | PASS คั่นอย่างน้อย 2 ส่วน",
       };
     }
-    normalizedPrimaryKey = parts[0].trim().toLowerCase();
+    normalizedPrimaryKey = parts[0].toLowerCase();
     maskedIdentity =
       normalizedPrimaryKey.length <= 4
         ? `${normalizedPrimaryKey.slice(0, 2)}***`

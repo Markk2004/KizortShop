@@ -29,8 +29,9 @@ export class CreateAdminProductDto {
   @IsString()
   badge?: "BEST SELLER" | "HOT DEAL" | "NEW ITEM";
 
+  @IsOptional()
   @IsString()
-  image: string;
+  image?: string;
 
   @IsOptional()
   @IsString()
@@ -43,12 +44,24 @@ export class CreateAdminProductDto {
   @IsOptional()
   @IsArray()
   tags?: string[];
+
+  @IsOptional()
+  @IsArray()
+  credentials?: string[];
 }
 
 export class UpdateAdminProductDto {
   @IsOptional()
   @IsString()
+  code?: string;
+
+  @IsOptional()
+  @IsString()
   title?: string;
+
+  @IsOptional()
+  @IsString()
+  categoryId?: string;
 
   @IsOptional()
   @IsNumber()
@@ -73,6 +86,18 @@ export class UpdateAdminProductDto {
   @IsOptional()
   @IsBoolean()
   isActive?: boolean;
+
+  @IsOptional()
+  @IsString()
+  status?: "AVAILABLE" | "OUT_OF_STOCK";
+
+  @IsOptional()
+  @IsNumber()
+  stock?: number;
+
+  @IsOptional()
+  @IsArray()
+  credentials?: string[];
 }
 
 export class AddStockBatchDto {
@@ -158,3 +183,47 @@ export class UpdateRobuxStatusDto {
   @IsString()
   reason?: string;
 }
+
+export class CreateAdminCategoryDto {
+  @IsString()
+  name: string;
+
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
+export class UpdateAdminCategoryDto {
+  @IsOptional()
+  @IsString()
+  name?: string;
+
+  @IsOptional()
+  @IsString()
+  slug?: string;
+
+  @IsOptional()
+  @IsString()
+  description?: string;
+
+  @IsOptional()
+  @IsString()
+  image?: string;
+
+  @IsOptional()
+  @IsBoolean()
+  isActive?: boolean;
+}
+
