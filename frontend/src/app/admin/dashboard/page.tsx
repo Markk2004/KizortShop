@@ -18,7 +18,7 @@ import {
   Receipt,
   Wallet,
 } from "lucide-react";
-import { formatBaht } from "@/lib/format";
+import { formatBaht, formatSignedBaht } from "@/lib/format";
 import {
   OrderDetailDrawer,
   type OrderDrawerData,
@@ -590,23 +590,59 @@ export default function AdminDashboardPage() {
             </span>
           </div>
 
-          {/* Card 3: Net Profit */}
-          <div className="p-4 rounded-lg bg-emerald-950/20 border border-emerald-500/30 space-y-1">
-            <div className="flex items-center justify-between">
-              <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest block font-bold">
-                03 // กำไรสุทธิ (NET PROFIT)
-              </span>
-              <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-                {accounting?.summary.profitMargin ?? 100}% MARGIN
-              </span>
-            </div>
-            <p className="text-2xl font-bold font-mono text-emerald-400 num-tabular">
-              +{formatBaht(accounting?.summary.netProfit ?? 0)}
-            </p>
-            <span className="text-[11px] text-emerald-500/80 font-mono block">
-              กำไรสุทธิหลังหักต้นทุนทุกรายการ
-            </span>
-          </div>
+          {/* Card 3: Net Profit / Loss */}
+          {(() => {
+            const netProfit = accounting?.summary.netProfit ?? 0;
+            const margin = accounting?.summary.profitMargin ?? 100;
+            const isLoss = netProfit < 0;
+            const isZero = netProfit === 0;
+            return (
+              <div
+                className={`p-4 rounded-lg space-y-1 transition-colors ${
+                  isLoss
+                    ? "bg-rose-950/20 border border-rose-500/30"
+                    : isZero
+                    ? "bg-zinc-950/80 border border-zinc-800/80"
+                    : "bg-emerald-950/20 border border-emerald-500/30"
+                }`}
+              >
+                <div className="flex items-center justify-between">
+                  <span
+                    className={`text-[10px] font-mono uppercase tracking-widest block font-bold ${
+                      isLoss ? "text-rose-400" : isZero ? "text-zinc-300" : "text-emerald-400"
+                    }`}
+                  >
+                    {isLoss ? "03 // ขาดทุนสุทธิ (NET LOSS)" : isZero ? "03 // เท่าทุน (BREAKEVEN)" : "03 // กำไรสุทธิ (NET PROFIT)"}
+                  </span>
+                  <span
+                    className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                      isLoss
+                        ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                        : isZero
+                        ? "bg-zinc-800 text-zinc-400 border-zinc-700"
+                        : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                    }`}
+                  >
+                    {margin}% MARGIN
+                  </span>
+                </div>
+                <p
+                  className={`text-2xl font-bold font-mono num-tabular ${
+                    isLoss ? "text-rose-400" : isZero ? "text-zinc-300" : "text-emerald-400"
+                  }`}
+                >
+                  {formatSignedBaht(netProfit)}
+                </p>
+                <span
+                  className={`text-[11px] font-mono block ${
+                    isLoss ? "text-rose-400/80" : isZero ? "text-zinc-500" : "text-emerald-500/80"
+                  }`}
+                >
+                  {isLoss ? "รายรับน้อยกว่าต้นทุนและค่าใช้จ่ายร้าน" : "กำไรสุทธิหลังหักต้นทุนทุกรายการ"}
+                </span>
+              </div>
+            );
+          })()}
 
           {/* Card 4: Inventory Valuation */}
           <div className="p-4 rounded-lg bg-zinc-950/80 border border-zinc-800/80 space-y-1">

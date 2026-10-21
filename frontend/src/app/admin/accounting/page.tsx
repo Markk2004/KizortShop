@@ -18,7 +18,7 @@ import {
   TrendingUp,
   Wallet,
 } from "lucide-react";
-import { formatBaht } from "@/lib/format";
+import { formatBaht, formatSignedBaht } from "@/lib/format";
 import { apiGet, apiPost, apiDelete } from "@/lib/api-client";
 
 type TimeRange = "ALL" | "TODAY" | "YESTERDAY" | "7D" | "MONTH";
@@ -390,23 +390,57 @@ export default function AdminExpensePage() {
           </span>
         </div>
 
-        {/* Card 4: Net Realized Profit */}
-        <div className="p-4 rounded-xl bg-emerald-950/20 border border-emerald-500/30 space-y-1">
-          <div className="flex items-center justify-between">
-            <span className="text-[10px] font-mono text-emerald-400 uppercase tracking-widest block font-bold">
-              04 // กำไรสุทธิ (NET PROFIT)
-            </span>
-            <span className="px-1.5 py-0.5 rounded text-[10px] font-mono font-bold bg-emerald-500/20 text-emerald-300 border border-emerald-500/30">
-              {summary.profitMargin}%
-            </span>
-          </div>
-          <p className="text-2xl font-bold font-mono text-emerald-400 num-tabular">
-            +{formatBaht(summary.netProfit)}
-          </p>
-          <span className="text-[11px] text-emerald-500/80 font-mono block">
-            รายรับลบต้นทุนและค่าใช้จ่ายร้าน
-          </span>
-        </div>
+        {/* Card 4: Net Realized Profit / Loss */}
+        {(() => {
+          const isLoss = summary.netProfit < 0;
+          const isZero = summary.netProfit === 0;
+          return (
+            <div
+              className={`p-4 rounded-xl space-y-1 transition-colors ${
+                isLoss
+                  ? "bg-rose-950/20 border border-rose-500/30"
+                  : isZero
+                  ? "bg-zinc-900/50 border border-zinc-800"
+                  : "bg-emerald-950/20 border border-emerald-500/30"
+              }`}
+            >
+              <div className="flex items-center justify-between">
+                <span
+                  className={`text-[10px] font-mono uppercase tracking-widest block font-bold ${
+                    isLoss ? "text-rose-400" : isZero ? "text-zinc-300" : "text-emerald-400"
+                  }`}
+                >
+                  {isLoss ? "04 // ขาดทุนสุทธิ (NET LOSS)" : isZero ? "04 // เท่าทุน (BREAKEVEN)" : "04 // กำไรสุทธิ (NET PROFIT)"}
+                </span>
+                <span
+                  className={`px-1.5 py-0.5 rounded text-[10px] font-mono font-bold border ${
+                    isLoss
+                      ? "bg-rose-500/20 text-rose-300 border-rose-500/30"
+                      : isZero
+                      ? "bg-zinc-800 text-zinc-400 border-zinc-700"
+                      : "bg-emerald-500/20 text-emerald-300 border-emerald-500/30"
+                  }`}
+                >
+                  {summary.profitMargin}%
+                </span>
+              </div>
+              <p
+                className={`text-2xl font-bold font-mono num-tabular ${
+                  isLoss ? "text-rose-400" : isZero ? "text-zinc-300" : "text-emerald-400"
+                }`}
+              >
+                {formatSignedBaht(summary.netProfit)}
+              </p>
+              <span
+                className={`text-[11px] font-mono block ${
+                  isLoss ? "text-rose-400/80" : isZero ? "text-zinc-500" : "text-emerald-500/80"
+                }`}
+              >
+                {isLoss ? "รายรับน้อยกว่าต้นทุนและค่าใช้จ่ายร้าน" : "รายรับลบต้นทุนและค่าใช้จ่ายร้าน"}
+              </span>
+            </div>
+          );
+        })()}
 
         {/* Card 5: Inventory Valuation */}
         <div className="p-4 rounded-xl bg-obsidian-900 border border-zinc-800 space-y-1">
@@ -515,11 +549,27 @@ export default function AdminExpensePage() {
                         <td className="py-3.5 px-4 text-right font-mono text-zinc-400 num-tabular">
                           {formatBaht(mapItem.cost)}
                         </td>
-                        <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400 num-tabular">
-                          +{formatBaht(mapItem.profit)}
+                        <td
+                          className={`py-3.5 px-4 text-right font-mono font-bold num-tabular ${
+                            mapItem.profit < 0
+                              ? "text-rose-400"
+                              : mapItem.profit === 0
+                              ? "text-zinc-400"
+                              : "text-emerald-400"
+                          }`}
+                        >
+                          {formatSignedBaht(mapItem.profit)}
                         </td>
                         <td className="py-3.5 px-4 text-center font-mono">
-                          <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
+                          <span
+                            className={`px-2 py-0.5 rounded text-[10px] font-bold border ${
+                              mapItem.profit < 0
+                                ? "bg-rose-500/10 text-rose-400 border-rose-500/20"
+                                : mapItem.profit === 0
+                                ? "bg-zinc-800 text-zinc-400 border-zinc-700"
+                                : "bg-emerald-500/10 text-emerald-400 border-emerald-500/20"
+                            }`}
+                          >
                             {margin}%
                           </span>
                         </td>
@@ -660,8 +710,16 @@ export default function AdminExpensePage() {
                       <td className="py-3.5 px-4 text-right font-mono text-zinc-400 num-tabular">
                         {formatBaht(item.cost)}
                       </td>
-                      <td className="py-3.5 px-4 text-right font-mono font-bold text-emerald-400 num-tabular">
-                        +{formatBaht(item.profit)}
+                      <td
+                        className={`py-3.5 px-4 text-right font-mono font-bold num-tabular ${
+                          item.profit < 0
+                            ? "text-rose-400"
+                            : item.profit === 0
+                            ? "text-zinc-400"
+                            : "text-emerald-400"
+                        }`}
+                      >
+                        {formatSignedBaht(item.profit)}
                       </td>
                       <td className="py-3.5 px-4 text-right font-mono text-zinc-400 num-tabular">
                         {new Date(item.soldAt).toLocaleString("th-TH")}
