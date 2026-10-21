@@ -2237,33 +2237,57 @@ class KeyValidationBot(discord.Client):
             embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บทันที")
             await interaction.followup.send(embed=embed)
 
-        # Command: /expense_list (Admin only)
-        @self.tree.command(
-            name="expense_list",
-            description="แสดงรายการค่าใช้จ่ายร้านล่าสุดและยอดรวมทั้งหมด",
-        )
-        @app_commands.default_permissions(administrator=True)
-        async def expense_list_cmd(interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True)
+        # Command: /expense_list & /expens_list
+        async def _send_expense_list_response(interaction: discord.Interaction):
+            if not interaction.response.is_done():
+                try:
+                    await interaction.response.defer(ephemeral=False)
+                except Exception:
+                    pass
+
             expenses = self.db.list_expenses(limit=15)
             if not expenses:
-                await interaction.followup.send("📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ", ephemeral=True)
+                msg = "📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ (พิมพ์ `จ่าย <รายการ> <จำนวน>` หรือใช้ `/expense` เพื่อบันทึก)"
+                if interaction.response.is_done():
+                    await interaction.followup.send(msg)
+                else:
+                    await interaction.response.send_message(msg)
                 return
 
             total = sum(float(e.get("amount") or 0.0) for e in expenses)
             lines = []
             for i, e in enumerate(expenses):
                 d_str = e.get("paidAt", "")[:10]
-                lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} (`{e.get('category','OTHER')}`) • {d_str}")
+                cat_k = e.get("category", "OTHER")
+                cat_info = EXPENSE_CAT_MAP.get(cat_k, {"label": cat_k, "emoji": "📦"})
+                lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} ({cat_info['emoji']} `{cat_info['label']}`) • {d_str}")
 
             embed = discord.Embed(
-                title=f"📋 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
+                title=f"💸 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
                 description="\n".join(lines),
                 color=discord.Color.gold(),
             )
             embed.add_field(name="⚡ ยอดค่าใช้จ่ายรวม", value=f"**฿{total:,.2f}**", inline=False)
-            embed.set_footer(text="จัดการค่าใช้จ่ายเพิ่มเติมได้ที่หน้าเว็บ /admin/accounting")
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            embed.set_footer(text="จัดการค่าใช้จ่ายเพิ่มเติมได้ที่หน้าเว็บ /admin/expense")
+
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.response.send_message(embed=embed)
+
+        @self.tree.command(
+            name="expense_list",
+            description="แสดงรายการค่าใช้จ่ายร้านล่าสุดและยอดรวมทั้งหมด",
+        )
+        async def expense_list_cmd(interaction: discord.Interaction):
+            await _send_expense_list_response(interaction)
+
+        @self.tree.command(
+            name="expens_list",
+            description="แสดงรายการค่าใช้จ่ายร้านล่าสุดและยอดรวมทั้งหมด (Alias)",
+        )
+        async def expens_list_alias_cmd(interaction: discord.Interaction):
+            await _send_expense_list_response(interaction)
 
         # Command: /ticket_panel (Admin only)
         @self.tree.command(
@@ -2467,20 +2491,28 @@ class KeyValidationBot(discord.Client):
         if "kaitun" in channel_name or channel_id == 1561017098094772264:
 
             # 1.5 Expense Quick Text Trigger
-            if lower_msg in ["รายจ่าย", "ค่าใช้จ่าย", "expense", "expenses", "เช็ครายจ่าย", "ดูรายจ่าย"]:
+            if lower_msg in [
+                "รายจ่าย", "ค่าใช้จ่าย", "expense", "expenses",
+                "expense_list", "expens_list", "/expense_list", "/expens_list",
+                "เช็ครายจ่าย", "ดูรายจ่าย", "list expense", "list_expense",
+            ]:
                 expenses = self.db.list_expenses(limit=15)
                 if not expenses:
                     await message.reply("📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ (พิมพ์ `จ่าย <รายการ> <จำนวนเงิน>` เพื่อบันทึก)")
                     return
                 total = sum(float(e.get("amount") or 0.0) for e in expenses)
-                lines = [f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} (`{e.get('category','OTHER')}`)" for i, e in enumerate(expenses[:12])]
+                lines = []
+                for i, e in enumerate(expenses[:12]):
+                    cat_k = e.get("category", "OTHER")
+                    cat_info = EXPENSE_CAT_MAP.get(cat_k, {"label": cat_k, "emoji": "📦"})
+                    lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} ({cat_info['emoji']} `{cat_info['label']}`)")
                 embed = discord.Embed(
                     title=f"💸 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
                     description="\n".join(lines),
                     color=discord.Color.gold(),
                 )
                 embed.add_field(name="⚡ ยอดรวมค่าใช้จ่าย", value=f"**฿{total:,.2f}**", inline=False)
-                embed.set_footer(text="พิมพ์ 'จ่าย <รายการ> <จำนวน>' เพื่อเพิ่มค่าใช้จ่าย หรือดูที่เว็บ /admin/accounting")
+                embed.set_footer(text="พิมพ์ 'จ่าย <รายการ> <จำนวน>' เพื่อเพิ่มค่าใช้จ่าย หรือดูที่เว็บ /admin/expense")
                 await message.reply(embed=embed)
                 return
 
