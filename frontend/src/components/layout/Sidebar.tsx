@@ -3,7 +3,7 @@
 import Link from "next/link";
 import { usePathname } from "next/navigation";
 import { LogIn, UserPlus } from "lucide-react";
-import { adminSidebarQuickNav, sidebarNav } from "@/config/navigation";
+import { sidebarNav } from "@/config/navigation";
 import { siteConfig } from "@/config/site";
 import { useAuth } from "@/features/auth/AuthContext";
 import { cn } from "@/lib/cn";
@@ -80,42 +80,6 @@ export function Sidebar() {
                 </Link>
               );
             })}
-
-            {/* Store Management Section */}
-            <div className="pt-2.5 mt-2.5 border-t border-zinc-800/80 space-y-1">
-              <p className="px-2 text-[10px] font-mono font-semibold uppercase tracking-widest text-zinc-500 mb-1 opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 whitespace-nowrap">
-                ADMINISTRATION // 02
-              </p>
-              {adminSidebarQuickNav.map((item) => {
-                const Icon = item.icon;
-                const isActive = pathname.startsWith(item.href);
-
-                return (
-                  <Link
-                    key={item.href}
-                    href={item.href}
-                    className={cn(
-                      "flex items-center gap-3.5 px-3 py-2 rounded-lg text-xs transition-colors shrink-0",
-                      isActive
-                        ? "font-semibold text-white bg-zinc-900 border border-zinc-700/80"
-                        : "font-medium text-zinc-400 hover:text-white hover:bg-zinc-900/60",
-                    )}
-                  >
-                    <div className="w-5 h-5 flex items-center justify-center shrink-0">
-                      <Icon
-                        className={cn(
-                          "w-4 h-4",
-                          isActive ? "text-white" : "text-zinc-500",
-                        )}
-                      />
-                    </div>
-                    <span className="opacity-0 group-hover/sidebar:opacity-100 transition-opacity duration-200 whitespace-nowrap">
-                      {item.label}
-                    </span>
-                  </Link>
-                );
-              })}
-            </div>
           </nav>
         </div>
 
