@@ -289,4 +289,62 @@ export class DiscordWebhookService {
       ],
     });
   }
+
+  /**
+   * แจ้งเตือนการบันทึกหรือลบค่าใช้จ่ายร้าน (#kaitun-id และ #web-orders)
+   */
+  async notifyExpenseAction(action: 'CREATED' | 'DELETED', data: {
+    title: string;
+    category: string;
+    amount: number;
+    note?: string;
+    actor?: string;
+  }) {
+    const isCreated = action === 'CREATED';
+    const categoryLabels: Record<string, string> = {
+      SCRIPT: 'ค่าสคริปต์ฟาร์ม 📜',
+      VPS: 'ค่า VPS / เซิร์ฟเวอร์ 💻',
+      ELECTRICITY: 'ค่าไฟ / ค่าฮาร์ดแวร์ ⚡',
+      BOT_HOST: 'ค่าโฮสต์บอท Discord 🤖',
+      OTHER: 'รายจ่ายอื่นๆ 📦',
+    };
+    const catLabel = categoryLabels[data.category] || data.category;
+    const title = isCreated
+      ? `💸 [บันทึกค่าใช้จ่ายใหม่จากเว็บ] ${data.title}`
+      : `🗑️ [ลบรายการค่าใช้จ่ายจากเว็บ] ${data.title}`;
+    const color = isCreated ? 0xF59E0B : 0xEF4444;
+
+    const fields: DiscordEmbedField[] = [
+      { name: 'รายการค่าใช้จ่าย', value: `**${data.title}**`, inline: true },
+      { name: 'หมวดหมู่', value: catLabel, inline: true },
+      { name: 'จำนวนเงิน', value: `**฿${Number(data.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}**`, inline: true },
+    ];
+    if (data.note) {
+      fields.push({ name: 'หมายเหตุ', value: `\`\`\`${data.note}\`\`\``, inline: false });
+    }
+    fields.push({
+      name: 'แหล่งที่มา',
+      value: data.actor || 'แอดมินผ่านหน้าเว็บไซต์ (/admin/expense)',
+      inline: false,
+    });
+
+    await Promise.allSettled([
+      this.sendEmbed('kaitun_sync', {
+        title,
+        description: isCreated
+          ? 'มีการบันทึกค่าใช้จ่ายร้านสำเร็จ และระบบได้หักลบออกจากกำไรสุทธิแท้จริงเรียบร้อยแล้ว'
+          : 'มีการลบรายการค่าใช้จ่ายนี้ออกจากระบบบัญชีเรียบร้อยแล้ว',
+        color,
+        fields,
+      }),
+      this.sendEmbed('orders', {
+        title,
+        description: isCreated
+          ? 'บันทึกค่าใช้จ่ายร้านสำเร็จ (Expense Ledger Log)'
+          : 'ลบรายการค่าใช้จ่ายออกจากระบบบัญชี',
+        color,
+        fields,
+      }),
+    ]);
+  }
 }

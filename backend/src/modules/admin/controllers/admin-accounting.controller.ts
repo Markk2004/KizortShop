@@ -244,6 +244,17 @@ export class AdminAccountingController {
       },
     });
 
+    // Notify Discord channels (#kaitun-id and #web-orders)
+    this.discordWebhook
+      .notifyExpenseAction("CREATED", {
+        title: created.title,
+        category: created.category,
+        amount: Number(created.amount),
+        note: created.note || undefined,
+        actor: "แอดมินผ่านหน้าเว็บไซต์ (/admin/expense)",
+      })
+      .catch((err) => console.error("Discord expense notify failed:", err));
+
     return {
       message: "Expense recorded successfully",
       data: {
@@ -261,6 +272,17 @@ export class AdminAccountingController {
     }
 
     await this.prisma.expense.delete({ where: { id } });
+
+    // Notify Discord channels
+    this.discordWebhook
+      .notifyExpenseAction("DELETED", {
+        title: existing.title,
+        category: existing.category,
+        amount: Number(existing.amount),
+        note: existing.note || undefined,
+        actor: "แอดมินผ่านหน้าเว็บไซต์ (/admin/expense)",
+      })
+      .catch((err) => console.error("Discord expense delete notify failed:", err));
 
     return {
       message: "Expense record deleted successfully",
