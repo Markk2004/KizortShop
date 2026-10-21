@@ -9,14 +9,6 @@ export function OrderTicker({ orders }: { orders: RecentOrder[] }) {
 
   return (
     <div className="rounded-lg border border-zinc-800 bg-obsidian-950 flex items-center overflow-hidden">
-      {/* Left Static KZ Telemetry Tag */}
-      <div className="hidden sm:flex items-center gap-2 px-3.5 py-2.5 bg-zinc-900 border-r border-zinc-800 shrink-0">
-        <span className="w-1.5 h-1.5 bg-emerald-400" />
-        <span className="text-[10px] font-mono font-bold tracking-widest text-zinc-200 uppercase">
-          KZ // LIVE FEED
-        </span>
-      </div>
-
       {/* Scrolling Track */}
       <div className="relative w-full overflow-hidden py-1.5 px-2 [mask-image:linear-gradient(to_right,transparent,black_2%,black_98%,transparent)]">
         <div className="flex gap-2 w-max animate-marquee hover:[animation-play-state:paused]">
