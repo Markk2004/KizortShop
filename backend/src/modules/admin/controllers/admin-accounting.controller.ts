@@ -114,15 +114,16 @@ export class AdminAccountingController {
     const filteredRecentSales: any[] = [];
 
     for (const item of stocks) {
-      const mapKey =
+      const rawMapName =
         item.farmedMaps?.trim() ||
         item.product?.category?.name?.trim() ||
         item.product?.title?.trim() ||
         "ทั่วไป";
+      const mapKey = rawMapName.toLowerCase();
 
       if (!mapStats[mapKey]) {
         mapStats[mapKey] = {
-          mapName: mapKey,
+          mapName: rawMapName,
           soldCount: 0,
           availableCount: 0,
           revenue: 0,
@@ -171,7 +172,7 @@ export class AdminAccountingController {
             serialCode: item.serialCode,
             username: item.username || item.maskedIdentity,
             productTitle: item.product?.title || "สินค้า",
-            map: mapKey,
+            map: mapStats[mapKey].mapName,
             sellingPrice,
             cost,
             profit: sellingPrice - cost,
@@ -210,7 +211,9 @@ export class AdminAccountingController {
         availableCount,
         totalExpensesCount: expenses.length,
       },
-      breakdownByMap: Object.values(mapStats).sort((a, b) => b.revenue - a.revenue),
+      breakdownByMap: Object.values(mapStats)
+        .filter((m) => m.soldCount > 0 || m.availableCount > 0)
+        .sort((a, b) => b.revenue - a.revenue),
       expenses: expenses.map((e) => ({
         id: e.id,
         title: e.title,
@@ -294,11 +297,18 @@ export class AdminAccountingController {
   async pushAccountingToDiscord() {
     const report = await this.getAccountingReport("ALL");
     const s = report.summary;
+    const isLoss = s.netProfit < 0;
+    const profitText =
+      s.netProfit === 0
+        ? "฿0.00"
+        : isLoss
+        ? `-฿${Math.abs(s.netProfit).toLocaleString()}`
+        : `+฿${s.netProfit.toLocaleString()}`;
 
-    await this.discordWebhook.sendEmbed("orders", {
+    const embedPayload = {
       title: "📊 สรุปรายงานบัญชีการเงินร้าน KaiZort Store (Accounting Summary)",
       description: "คำนวณจากยอดขายจริง ต้นทุนไอดี และค่าใช้จ่ายร้านใน Supabase Database",
-      color: 0x10b981,
+      color: isLoss ? 0xef4444 : 0x10b981,
       fields: [
         {
           name: "💰 ยอดขายจริงรวม (Gross Revenue)",
@@ -316,8 +326,8 @@ export class AdminAccountingController {
           inline: true,
         },
         {
-          name: "📈 กำไรสุทธิแท้จริง (Net Profit)",
-          value: `**+฿${s.netProfit.toLocaleString()}** (${s.profitMargin}% Margin)`,
+          name: isLoss ? "📉 ขาดทุนสุทธิ (Net Loss)" : "📈 กำไรสุทธิแท้จริง (Net Profit)",
+          value: `**${profitText}** (${s.profitMargin}% Margin)`,
           inline: true,
         },
         {
@@ -326,8 +336,13 @@ export class AdminAccountingController {
           inline: true,
         },
       ],
-      footer: { text: "KaiZort Accounting System • Real-Time Sync" },
-    });
+      footer: { text: "KaiZort Expense & Accounting System • /admin/expense" },
+    };
+
+    await Promise.allSettled([
+      this.discordWebhook.sendEmbed("orders", embedPayload),
+      this.discordWebhook.sendEmbed("kaitun_sync", embedPayload),
+    ]);
 
     return {
       message: "Financial summary sent to Discord successfully",

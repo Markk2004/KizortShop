@@ -7,29 +7,32 @@ export class AdminDashboardController {
 
   @Get("accounting")
   async getCostAndProfitAccounting() {
-    const stocks = await this.prisma.accountStock.findMany({
-      include: {
-        product: {
-          select: {
-            id: true,
-            code: true,
-            title: true,
-            price: true,
-            category: { select: { id: true, name: true } },
+    const [stocks, expenses] = await Promise.all([
+      this.prisma.accountStock.findMany({
+        include: {
+          product: {
+            select: {
+              id: true,
+              code: true,
+              title: true,
+              price: true,
+              category: { select: { id: true, name: true } },
+            },
+          },
+          order: {
+            select: {
+              id: true,
+              orderNumber: true,
+              amount: true,
+              costAmount: true,
+              status: true,
+              createdAt: true,
+            },
           },
         },
-        order: {
-          select: {
-            id: true,
-            orderNumber: true,
-            amount: true,
-            costAmount: true,
-            status: true,
-            createdAt: true,
-          },
-        },
-      },
-    });
+      }),
+      this.prisma.expense.findMany(),
+    ]);
 
     let totalRevenue = 0;
     let totalCost = 0;
@@ -55,15 +58,16 @@ export class AdminDashboardController {
     const recentSales: any[] = [];
 
     for (const item of stocks) {
-      const mapKey =
+      const rawMapName =
         item.farmedMaps?.trim() ||
         item.product?.category?.name?.trim() ||
         item.product?.title?.trim() ||
         "ทั่วไป";
+      const mapKey = rawMapName.toLowerCase();
 
       if (!mapStats[mapKey]) {
         mapStats[mapKey] = {
-          mapName: mapKey,
+          mapName: rawMapName,
           soldCount: 0,
           availableCount: 0,
           revenue: 0,
@@ -102,7 +106,7 @@ export class AdminDashboardController {
           serialCode: item.serialCode,
           username: item.username || item.maskedIdentity,
           productTitle: item.product?.title || "สินค้า",
-          map: mapKey,
+          map: mapStats[mapKey].mapName,
           sellingPrice,
           cost,
           profit: sellingPrice - cost,
@@ -119,7 +123,8 @@ export class AdminDashboardController {
       }
     }
 
-    const netProfit = totalRevenue - totalCost - defectLoss;
+    const operatingExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
+    const netProfit = totalRevenue - totalCost - defectLoss - operatingExpenses;
     const profitMargin =
       totalRevenue > 0 ? Number(((netProfit / totalRevenue) * 100).toFixed(1)) : 0;
 
@@ -127,6 +132,7 @@ export class AdminDashboardController {
       summary: {
         totalRevenue,
         totalCost,
+        operatingExpenses,
         netProfit,
         profitMargin,
         defectLoss,
@@ -137,7 +143,9 @@ export class AdminDashboardController {
         defectiveCount,
         totalItems: stocks.length,
       },
-      breakdownByMap: Object.values(mapStats).sort((a, b) => b.revenue - a.revenue),
+      breakdownByMap: Object.values(mapStats)
+        .filter((m) => m.soldCount > 0 || m.availableCount > 0)
+        .sort((a, b) => b.revenue - a.revenue),
       recentSales: recentSales.sort(
         (a, b) => new Date(b.soldAt).getTime() - new Date(a.soldAt).getTime(),
       ),
@@ -146,44 +154,68 @@ export class AdminDashboardController {
 
   @Get("metrics")
   async getSummaryMetrics() {
+    const now = new Date();
+    const startOfToday = new Date(now.getFullYear(), now.getMonth(), now.getDate(), 0, 0, 0);
+    const startOfMonth = new Date(now.getFullYear(), now.getMonth(), 1, 0, 0, 0);
+
     // Real counts from Supabase
-    const [stocks, usersCount, pendingSlipsCount] = await Promise.all([
+    const [stocks, usersCount, pendingSlipsCount, products] = await Promise.all([
       this.prisma.accountStock.findMany({
         select: {
           status: true,
           sellingPriceText: true,
           costPrice: true,
+          soldAt: true,
+          updatedAt: true,
           product: { select: { price: true } },
         },
       }),
       this.prisma.user.count(),
       this.prisma.topupTransaction.count({ where: { status: "PENDING_VERIFY" } }).catch(() => 0),
+      this.prisma.product
+        .findMany({
+          where: { isActive: true },
+          select: {
+            id: true,
+            _count: { select: { stocks: { where: { status: "AVAILABLE" } } } },
+          },
+        })
+        .catch(() => []),
     ]);
 
-    let totalRevenue = 0;
-    let soldCount = 0;
-    let outOfStock = 0;
+    const outOfStockProducts = products.filter((p) => p._count.stocks === 0).length;
+
+    let dailyRevenue = 0;
+    let monthlyRevenue = 0;
+    let soldTodayCount = 0;
 
     for (const s of stocks) {
       if (s.status === "SOLD") {
-        soldCount++;
         let p = 0;
         if (s.sellingPriceText) {
           const num = parseFloat(s.sellingPriceText.replace(/[^0-9.]/g, ""));
           if (!isNaN(num) && num > 0) p = num;
         }
         if (p === 0 && s.product?.price) p = Number(s.product.price);
-        totalRevenue += p;
+
+        const soldTime = new Date(s.soldAt || s.updatedAt);
+        if (soldTime >= startOfMonth) {
+          monthlyRevenue += p;
+        }
+        if (soldTime >= startOfToday) {
+          dailyRevenue += p;
+          soldTodayCount++;
+        }
       }
     }
 
     return {
-      dailyRevenue: totalRevenue,
-      monthlyRevenue: totalRevenue,
-      totalOrdersToday: soldCount,
+      dailyRevenue,
+      monthlyRevenue,
+      totalOrdersToday: soldTodayCount,
       pendingSlips: pendingSlipsCount || 0,
       activeMembers: usersCount,
-      outOfStockCount: outOfStock,
+      outOfStockCount: outOfStockProducts || 0,
     };
   }
 

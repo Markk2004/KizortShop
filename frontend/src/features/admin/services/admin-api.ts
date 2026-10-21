@@ -13,6 +13,7 @@ export interface AccountingData {
   summary: {
     totalRevenue: number;
     totalCost: number;
+    operatingExpenses?: number;
     netProfit: number;
     profitMargin: number;
     defectLoss: number;

@@ -592,7 +592,7 @@ class ExpenseModal(discord.ui.Modal):
         embed.add_field(name="🏷️ หมวดหมู่", value=f"{cat_info['emoji']} `{cat_info['label']}`", inline=True)
         if note:
             embed.add_field(name="📝 หมายเหตุ", value=f"```{note}```", inline=False)
-        embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บ /admin/accounting ทันที")
+        embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บ /admin/expense ทันที")
 
         await interaction.followup.send(embed=embed)
 
@@ -2132,14 +2132,17 @@ class KeyValidationBot(discord.Client):
             result_embed.add_field(name="[ห้องที่ดำเนินการสำเร็จ]", value="\n".join(posted_channels) if posted_channels else "ไม่มี", inline=False)
             await interaction.followup.send(embed=result_embed, ephemeral=True)
 
-        # Command: /accounting (Admin only)
+        # Command: /accounting
         @self.tree.command(
             name="accounting",
             description="สรุปบัญชีการเงิน: ยอดขาย ต้นทุน กำไรสุทธิ และมูลค่าสต็อกคงเหลือ",
         )
-        @app_commands.default_permissions(administrator=True)
         async def accounting_cmd(interaction: discord.Interaction):
-            await interaction.response.defer(ephemeral=True)
+            if not interaction.response.is_done():
+                try:
+                    await interaction.response.defer(ephemeral=False)
+                except Exception:
+                    pass
             stats = self.db.get_financial_stats()
 
             revenue = stats.get("total_revenue", 0.0)
@@ -2151,27 +2154,40 @@ class KeyValidationBot(discord.Client):
             sold = stats.get("sold_count", 0)
             avail = stats.get("available_count", 0)
 
+            is_loss = profit < 0
+            profit_str = (
+                "฿0.00"
+                if profit == 0
+                else (f"-฿{abs(profit):,.2f}" if is_loss else f"+฿{profit:,.2f}")
+            )
+
             embed = discord.Embed(
                 title="📊 สรุปบัญชีการเงิน KaiZort (Cost & Profit Accounting)",
                 description="คำนวณจากยอดขายจริง ต้นทุนไอดี และค่าใช้จ่ายร้านใน Supabase Database",
-                color=discord.Color.green(),
+                color=discord.Color.red() if is_loss else discord.Color.green(),
             )
             embed.add_field(name="💰 ยอดขายจริงรวม", value=f"฿{revenue:,.2f} ({sold} บัญชี)", inline=True)
             embed.add_field(name="📦 ต้นทุนไอดี (COGS)", value=f"฿{cost:,.2f}", inline=True)
             embed.add_field(name="⚡ ค่าใช้จ่ายร้าน", value=f"฿{expenses:,.2f}", inline=True)
-            embed.add_field(name="📈 กำไรสุทธิแท้จริง", value=f"**+฿{profit:,.2f}** ({margin}%)", inline=True)
+            embed.add_field(
+                name="📉 ขาดทุนสุทธิ (Net Loss)" if is_loss else "📈 กำไรสุทธิแท้จริง (Net Profit)",
+                value=f"**{profit_str}** ({margin}%)",
+                inline=True,
+            )
             embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
             embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
-            embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • ตรวจสอบโดย KaiZort Admin")
+            embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • /admin/expense")
 
-            await interaction.followup.send(embed=embed, ephemeral=True)
+            if interaction.response.is_done():
+                await interaction.followup.send(embed=embed)
+            else:
+                await interaction.response.send_message(embed=embed)
 
-        # Command: /expense (Admin only - Interactive Modal Form with Dropdown)
+        # Command: /expense (Interactive Modal Form with Dropdown)
         @self.tree.command(
             name="expense",
             description="เปิดฟอร์มบันทึกค่าใช้จ่ายร้าน (มีเมนู Dropdown เลือกหมวดหมู่เหมือนบนเว็บ)",
         )
-        @app_commands.default_permissions(administrator=True)
         async def expense_cmd(interaction: discord.Interaction):
             embed = discord.Embed(
                 title="💸 บันทึกค่าใช้จ่ายร้าน (Store Operating Expenses)",
@@ -2182,7 +2198,7 @@ class KeyValidationBot(discord.Client):
                     "• ⚡ **ค่าไฟ / ฮาร์ดแวร์** (`ELECTRICITY`)\n"
                     "• 🤖 **ค่าโฮสต์บอท Discord** (`BOT_HOST`)\n"
                     "• 📦 **รายจ่ายอื่นๆ** (`OTHER`)\n\n"
-                    "*(ข้อมูลจะถูกนำไปหักลบจากกำไรสุทธิบนหน้าเว็บ /admin/accounting ทันที)*"
+                    "*(ข้อมูลจะถูกนำไปหักลบจากกำไรสุทธิบนหน้าเว็บ /admin/expense ทันที)*"
                 ),
                 color=discord.Color.gold(),
             )
@@ -2190,7 +2206,7 @@ class KeyValidationBot(discord.Client):
             view = ExpenseInteractiveView(db=self.db)
             await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
-        # Command: /expense_add (Admin only)
+        # Command: /expense_add
         @self.tree.command(
             name="expense_add",
             description="บันทึกค่าใช้จ่ายร้าน (เช่น ค่าสคริปต์, ค่า VPS, ค่าไฟ) เพื่อหักลบกำไร",
@@ -2210,7 +2226,6 @@ class KeyValidationBot(discord.Client):
                 app_commands.Choice(name="📦 รายจ่ายอื่นๆ (OTHER)", value="OTHER"),
             ]
         )
-        @app_commands.default_permissions(administrator=True)
         async def expense_add_cmd(
             interaction: discord.Interaction,
             title: str,
@@ -2556,7 +2571,7 @@ class KeyValidationBot(discord.Client):
                             )
                             embed.add_field(name="💰 จำนวนเงิน", value=f"**฿{amount:,.2f}**", inline=True)
                             embed.add_field(name="🏷️ หมวดหมู่", value=f"`{cat}`", inline=True)
-                            embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับหน้าเว็บ /admin/accounting ทันที")
+                            embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับหน้าเว็บ /admin/expense ทันที")
                             await message.reply(embed=embed)
                             return
 
