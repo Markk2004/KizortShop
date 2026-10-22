@@ -1068,12 +1068,14 @@ class KeyValidationBot(discord.Client):
         process_service: Optional[ProcessService] = None,
         kaitun_service: Optional[KaitunService] = None,
         ticket_service: Optional[TicketService] = None,
+        database: Optional[Database] = None,
     ):
         intents = discord.Intents.default()
         intents.message_content = True
         super().__init__(intents=intents)
         self.settings = settings
         self.service = service
+        self.db = database or getattr(service, "database", None) or Database(settings.database_path)
         self.process_service = process_service or ProcessService(
             ProviderClient(), service
         )
@@ -1503,9 +1505,10 @@ class KeyValidationBot(discord.Client):
 
         # Common handlers for status and screen
         async def _handle_status(interaction: discord.Interaction, ephemeral: bool = False):
+            await interaction.response.defer(ephemeral=ephemeral)
             info = self.roblox_service.get_status_info()
             embed = _build_status_embed(info)
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         async def _handle_screen(interaction: discord.Interaction, ephemeral: bool = False):
             await interaction.response.defer(ephemeral=ephemeral)
@@ -1655,6 +1658,7 @@ class KeyValidationBot(discord.Client):
             data: str,
             ephemeral: bool = True,
         ):
+            await interaction.response.defer(ephemeral=ephemeral)
             res = self.kaitun_service.add_stock_from_text(
                 text=data, user_id=interaction.user.id
             )
@@ -1695,7 +1699,7 @@ class KeyValidationBot(discord.Client):
                 )
 
             embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • รวมในคลังทั้งหมด {stats['total']} บัญชี")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command: /stock_check (เช็คจำนวนไอดีในสต็อก)
         @self.tree.command(
@@ -1704,6 +1708,7 @@ class KeyValidationBot(discord.Client):
         )
         @app_commands.describe(ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)")
         async def stock_check_cmd(interaction: discord.Interaction, ephemeral: bool = False):
+            await interaction.response.defer(ephemeral=ephemeral)
             stats = self.kaitun_service.get_stock_summary()
             embed = discord.Embed(
                 title="📊 สถานะคลังสต็อกไอดี (Kaitun Stock)",
@@ -1713,7 +1718,7 @@ class KeyValidationBot(discord.Client):
             embed.add_field(name="🔴 จ่ายแล้ว (Used)", value=f"`{stats['used']}` บัญชี", inline=True)
             embed.add_field(name="📦 ทั้งหมด (Total)", value=f"`{stats['total']}` บัญชี", inline=True)
             embed.set_footer(text=f"ตรวจเช็กโดย {interaction.user.name} • {datetime.now().strftime('%H:%M:%S')}")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command: /stock_list (ดูรายชื่อไอดีในสต็อก)
         @self.tree.command(
@@ -1736,12 +1741,13 @@ class KeyValidationBot(discord.Client):
             filter: str = "all",
             ephemeral: bool = True,
         ):
+            await interaction.response.defer(ephemeral=ephemeral)
             stats = self.kaitun_service.get_stock_summary()
             sale_filter = None if filter == "all" else filter
             accounts = self.kaitun_service.list_accounts(sale_status=sale_filter, limit=50)
 
             if not accounts:
-                await interaction.response.send_message("📦 ไม่พบรายการไอดีตามเงื่อนไขที่เลือกในระบบ", ephemeral=ephemeral)
+                await interaction.followup.send("📦 ไม่พบรายการไอดีตามเงื่อนไขที่เลือกในระบบ", ephemeral=ephemeral)
                 return
 
             lines = []
@@ -1770,7 +1776,7 @@ class KeyValidationBot(discord.Client):
             embed.add_field(name="🟢 พร้อมขาย", value=f"`{stats['available']}` บัญชี", inline=True)
             embed.add_field(name="🔴 ขายแล้ว", value=f"`{stats['sold']}` บัญชี", inline=True)
             embed.set_footer(text=f"แสดง {len(lines)} รายการ • ตรวจสอบโดย {interaction.user.name}")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command: /stock_history (ดูประวัติไอดีที่ขายไปแล้ว)
         @self.tree.command(
@@ -1779,9 +1785,10 @@ class KeyValidationBot(discord.Client):
         )
         @app_commands.describe(ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: True เพื่อความปลอดภัยของรหัส)")
         async def stock_history_cmd(interaction: discord.Interaction, ephemeral: bool = True):
+            await interaction.response.defer(ephemeral=ephemeral)
             accounts = self.kaitun_service.list_accounts(sale_status="sold", limit=25)
             if not accounts:
-                await interaction.response.send_message("📦 ไม่พบประวัติไอดีที่ขายแล้วในระบบ", ephemeral=ephemeral)
+                await interaction.followup.send("📦 ไม่พบประวัติไอดีที่ขายแล้วในระบบ", ephemeral=ephemeral)
                 return
 
             lines = []
@@ -1797,7 +1804,7 @@ class KeyValidationBot(discord.Client):
                 color=discord.Color.red(),
             )
             embed.set_footer(text=f"ประวัติทั้งหมด {len(accounts)} รายการ • ตรวจสอบโดย {interaction.user.name}")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command: /stock_dispense (เบิกไอดีออกจากสต็อก)
         @self.tree.command(
@@ -1813,10 +1820,11 @@ class KeyValidationBot(discord.Client):
             amount: int = 1,
             ephemeral: bool = True,
         ):
+            await interaction.response.defer(ephemeral=ephemeral)
             amount = max(1, min(amount, 10))
             accounts = self.kaitun_service.dispense_accounts(count=amount, user_id=interaction.user.id)
             if not accounts:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     "❌ **สต็อกว่างเปล่า!** ไม่มีไอดีสถานะพร้อมใช้งานในขณะนี้ กรุณาเติมสต็อกด้วย `/stock_add`",
                     ephemeral=ephemeral,
                 )
@@ -1838,7 +1846,7 @@ class KeyValidationBot(discord.Client):
             )
             embed.add_field(name="📦 สต็อกคงเหลือ", value=f"`{stats['available']}` บัญชี", inline=True)
             embed.set_footer(text=f"เบิกโดย {interaction.user.name} • ปลอดภัย ข้อมูลไม่ถูกจ่ายซ้ำ")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command: /stock_password (เปลี่ยนรหัสผ่านของไอดีในสต็อก)
         @self.tree.command(
@@ -1856,9 +1864,10 @@ class KeyValidationBot(discord.Client):
             new_password: str,
             ephemeral: bool = True,
         ):
+            await interaction.response.defer(ephemeral=ephemeral)
             acc = self.kaitun_service.get_account(username.strip())
             if not acc:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ ไม่พบไอดี `{username}` ในระบบ",
                     ephemeral=ephemeral,
                 )
@@ -1877,9 +1886,9 @@ class KeyValidationBot(discord.Client):
                 embed.add_field(name="👤 บัญชี", value=f"`{username.strip()}`", inline=True)
                 embed.add_field(name="🔑 รหัสผ่านใหม่", value=f"||`{new_password.strip()}`||", inline=True)
                 embed.set_footer(text=f"เปลี่ยนรหัสผ่านโดย {interaction.user.name}")
-                await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+                await interaction.followup.send(embed=embed, ephemeral=ephemeral)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ ไม่สามารถเปลี่ยนรหัสผ่านของไอดี `{username}` ได้",
                     ephemeral=ephemeral,
                 )
@@ -1896,10 +1905,11 @@ class KeyValidationBot(discord.Client):
             interaction: discord.Interaction,
             username: str,
         ):
+            await interaction.response.defer(ephemeral=True)
             target_u = username.strip()
             acc = self.kaitun_service.get_account(target_u)
             if not acc:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก",
                     ephemeral=True,
                 )
@@ -1915,9 +1925,9 @@ class KeyValidationBot(discord.Client):
                 embed.add_field(name="👤 ชื่อไอดี (Username)", value=f"`{acc['username']}`", inline=True)
                 embed.add_field(name="📦 รหัสอ้างอิง", value=f"`{acc.get('serial_code') or acc.get('id', '-')}`", inline=True)
                 embed.set_footer(text=f"นำออกโดย {interaction.user.name} • ซิงค์ Supabase เรียบร้อย")
-                await interaction.response.send_message(embed=embed)
+                await interaction.followup.send(embed=embed)
             else:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ ไม่สามารถนำไอดี `{target_u}` ออกจากระบบได้",
                     ephemeral=True,
                 )
@@ -1957,9 +1967,10 @@ class KeyValidationBot(discord.Client):
             username: str,
             ephemeral: bool = False,
         ):
+            await interaction.response.defer(ephemeral=ephemeral)
             acc = self.kaitun_service.get_account(username)
             if not acc:
-                await interaction.response.send_message(
+                await interaction.followup.send(
                     f"❌ ไม่พบไอดี `{username}` ในระบบ",
                     ephemeral=ephemeral,
                 )
@@ -1998,7 +2009,7 @@ class KeyValidationBot(discord.Client):
                 inline=False,
             )
             embed.set_footer(text=f"เพิ่มเมื่อ: {acc.get('added_at', '')[:16].replace('T', ' ')}")
-            await interaction.response.send_message(embed=embed, ephemeral=ephemeral)
+            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
         # Command to auto-provision Discord notification channels and save Webhooks to Supabase
         @self.tree.command(
@@ -2352,17 +2363,25 @@ class KeyValidationBot(discord.Client):
             if isinstance(error, app_commands.CommandOnCooldown):
                 retry_after = round(error.retry_after, 1)
                 msg = f"[รอสักครู่] คุณทำรายการเร็วเกินไป กรุณารออีก {retry_after} วินาที"
-                if interaction.response.is_done():
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await interaction.response.send_message(msg, ephemeral=True)
+                except Exception:
+                    pass
             else:
-                logger.error("App command error: %s", type(error).__name__)
+                logger.error("App command error [%s]: %s", type(error).__name__, error, exc_info=True)
                 msg = "[ข้อผิดพลาด] เกิดข้อผิดพลาดในการประมวลผลคำสั่ง"
-                if interaction.response.is_done():
-                    await interaction.followup.send(msg, ephemeral=True)
-                else:
-                    await interaction.response.send_message(msg, ephemeral=True)
+                try:
+                    if interaction.response.is_done():
+                        await interaction.followup.send(msg, ephemeral=True)
+                    else:
+                        await interaction.response.send_message(msg, ephemeral=True)
+                except discord.errors.NotFound:
+                    logger.warning("Interaction expired before response could be sent (Discord 3-second timeout).")
+                except Exception as send_err:
+                    logger.warning("Failed to deliver error response: %s", send_err)
 
     async def on_message(self, message: discord.Message):
         # Ignore own messages
@@ -3365,23 +3384,21 @@ class KeyValidationBot(discord.Client):
             logger.warning("Error in monitor_roblox_loop: %s", e)
 
     async def on_ready(self):
-        # 1. Sync global commands
-        try:
-            await self.tree.sync()
-            logger.info("Global application command tree synced successfully.")
-        except Exception as e:
-            logger.error("Failed to sync global commands: %s", type(e).__name__)
+        if not hasattr(self, "_has_synced"):
+            self._has_synced = False
 
-        # 2. Sync directly to every guild for INSTANT visibility in Discord client!
-        for guild in self.guilds:
-            try:
-                self.tree.copy_global_to(guild=guild)
-                await self.tree.sync(guild=guild)
-                logger.info("Command tree synced INSTANTLY to guild: %s (ID: %s)", guild.name, guild.id)
-            except Exception as e:
-                logger.error("Failed to sync commands to guild %s: %s", guild.id, e)
+        # 1. Sync commands once on boot
+        if not self._has_synced:
+            for guild in self.guilds:
+                try:
+                    self.tree.copy_global_to(guild=guild)
+                    await self.tree.sync(guild=guild)
+                    logger.info("Command tree synced to guild: %s (ID: %s)", guild.name, guild.id)
+                except Exception as e:
+                    logger.error("Failed to sync commands to guild %s: %s", guild.id, e)
+            self._has_synced = True
 
-        # 3. Start automatic background monitor loop
+        # 2. Start automatic background monitor loop
         if not self.monitor_roblox_loop.is_running():
             self.monitor_roblox_loop.start()
             logger.info("Roblox real-time background monitor loop started.")
@@ -3395,8 +3412,17 @@ def create_bot(
     service: KeyService,
     process_service: Optional[ProcessService] = None,
     kaitun_service: Optional[KaitunService] = None,
+    ticket_service: Optional[TicketService] = None,
+    database: Optional[Database] = None,
 ) -> discord.Client:
-    return KeyValidationBot(settings, service, process_service, kaitun_service)
+    return KeyValidationBot(
+        settings=settings,
+        service=service,
+        process_service=process_service,
+        kaitun_service=kaitun_service,
+        ticket_service=ticket_service,
+        database=database,
+    )
 
 
 def main():
@@ -3416,7 +3442,13 @@ def main():
     )
     process_service = ProcessService(provider_client, service)
     kaitun_service = KaitunService(database)
-    bot = create_bot(settings, service, process_service, kaitun_service)
+    bot = create_bot(
+        settings=settings,
+        service=service,
+        process_service=process_service,
+        kaitun_service=kaitun_service,
+        database=database,
+    )
     bot.run(settings.discord_token)
 
 

@@ -20,6 +20,8 @@ def test_create_bot_initialization(tmp_path):
     assert isinstance(bot, KeyValidationBot)
     assert bot.settings == settings
     assert bot.service == service
+    assert bot.db is not None
+    assert bot.db == database
 
     # Check registered slash commands
     redeem_cmd = bot.tree.get_command("redeem")
