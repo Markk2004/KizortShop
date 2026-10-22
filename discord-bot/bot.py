@@ -527,9 +527,13 @@ class ExpenseModal(discord.ui.Modal):
         self.db = db
         self.category = category
 
+        # เติมชื่อรายการ (หัวข้อ) อัตโนมัติตามหมวดหมู่ที่เลือกมา
+        default_title = cat_info["label"] if category != "OTHER" else ""
+
         self.title_input = discord.ui.TextInput(
-            label="ชื่อรายการค่าใช้จ่าย (Title)",
-            placeholder="เช่น ค่าสคริปต์ฟาร์มประจำเดือน, ค่า VPS, ค่าไฟ",
+            label="ชื่อรายการค่าใช้จ่าย (Title / หัวข้อ)",
+            default=default_title,
+            placeholder="เช่น ค่าสคริปต์ฟาร์ม, ค่า VPS, ค่าไฟ",
             required=True,
             max_length=100,
         )
@@ -538,12 +542,6 @@ class ExpenseModal(discord.ui.Modal):
             placeholder="เช่น 150 หรือ 300.50",
             required=True,
             max_length=20,
-        )
-        self.category_input = discord.ui.TextInput(
-            label="หมวดหมู่ (SCRIPT / VPS / ELECTRICITY / ...)",
-            default=category,
-            required=True,
-            max_length=30,
         )
         self.note_input = discord.ui.TextInput(
             label="หมายเหตุเพิ่มเติม (เว้นว่างได้)",
@@ -555,14 +553,13 @@ class ExpenseModal(discord.ui.Modal):
 
         self.add_item(self.title_input)
         self.add_item(self.amount_input)
-        self.add_item(self.category_input)
         self.add_item(self.note_input)
 
     async def on_submit(self, interaction: discord.Interaction):
         await interaction.response.defer(ephemeral=False)
         title = self.title_input.value.strip()
         raw_amt = self.amount_input.value.strip()
-        cat = self.category_input.value.strip().upper() or self.category
+        cat = self.category
         note = self.note_input.value.strip() or None
 
         import re
