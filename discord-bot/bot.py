@@ -630,6 +630,7 @@ class ExpenseCategorySelect(discord.ui.Select):
             ),
         ]
         super().__init__(
+            custom_id="expense:category_select",
             placeholder="👇 เลือกหมวดหมู่ค่าใช้จ่ายเพื่อเปิดฟอร์มกรอก...",
             min_values=1,
             max_values=1,
@@ -637,21 +638,42 @@ class ExpenseCategorySelect(discord.ui.Select):
         )
 
     async def callback(self, interaction: discord.Interaction):
-        selected_cat = self.values[0]
-        modal = ExpenseModal(db=self.db, category=selected_cat)
-        await interaction.response.send_modal(modal)
+        try:
+            selected_cat = self.values[0] if self.values else "OTHER"
+            modal = ExpenseModal(db=self.db, category=selected_cat)
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            logger.error("Error sending ExpenseModal: %s", e, exc_info=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ เกิดข้อผิดพลาดในการเปิดฟอร์ม: {e}", ephemeral=True)
+            except Exception:
+                pass
 
 
 class ExpenseInteractiveView(discord.ui.View):
     def __init__(self, db: Database):
-        super().__init__(timeout=180)
+        super().__init__(timeout=None)
         self.db = db
         self.add_item(ExpenseCategorySelect(db=db))
 
-    @discord.ui.button(label="กรอกฟอร์มด่วน (ค่าใช้จ่ายทั่วไป)", style=discord.ButtonStyle.secondary, emoji="📝")
+    @discord.ui.button(
+        label="กรอกฟอร์มด่วน (ค่าใช้จ่ายทั่วไป)",
+        style=discord.ButtonStyle.secondary,
+        emoji="📝",
+        custom_id="expense:quick_button",
+    )
     async def quick_form_button(self, interaction: discord.Interaction, button: discord.ui.Button):
-        modal = ExpenseModal(db=self.db, category="OTHER")
-        await interaction.response.send_modal(modal)
+        try:
+            modal = ExpenseModal(db=self.db, category="OTHER")
+            await interaction.response.send_modal(modal)
+        except Exception as e:
+            logger.error("Error sending Quick ExpenseModal: %s", e, exc_info=True)
+            try:
+                if not interaction.response.is_done():
+                    await interaction.response.send_message(f"❌ เกิดข้อผิดพลาดในการเปิดฟอร์ม: {e}", ephemeral=True)
+            except Exception:
+                pass
 
 
 def build_ticket_panel_embed() -> discord.Embed:
@@ -1105,6 +1127,7 @@ class KeyValidationBot(discord.Client):
         self.add_view(SupportTicketPanelView(self.ticket_service))
         self.add_view(TicketControlView(self.ticket_service))
         self.add_view(ConfirmCloseView(self.ticket_service))
+        self.add_view(ExpenseInteractiveView(self.db))
         logger.info("Persistent views successfully registered in setup_hook with active event loop.")
 
     def _register_commands(self) -> None:
@@ -2196,7 +2219,27 @@ class KeyValidationBot(discord.Client):
             name="expense",
             description="เปิดฟอร์มบันทึกค่าใช้จ่ายร้าน (มีเมนู Dropdown เลือกหมวดหมู่เหมือนบนเว็บ)",
         )
-        async def expense_cmd(interaction: discord.Interaction):
+        @app_commands.describe(
+            category="เลือกหมวดหมู่เพื่อเปิดฟอร์มกรอกทันที (เว้นว่างไว้เพื่อเปิดเมนูดร็อปดาวน์)",
+        )
+        @app_commands.choices(
+            category=[
+                app_commands.Choice(name="📜 ค่าสคริปต์ฟาร์ม (SCRIPT)", value="SCRIPT"),
+                app_commands.Choice(name="💻 ค่า VPS / Cloud (VPS)", value="VPS"),
+                app_commands.Choice(name="⚡ ค่าไฟ / ฮาร์ดแวร์ (ELECTRICITY)", value="ELECTRICITY"),
+                app_commands.Choice(name="🤖 ค่าโฮสต์บอท (BOT_HOST)", value="BOT_HOST"),
+                app_commands.Choice(name="📦 รายจ่ายอื่นๆ (OTHER)", value="OTHER"),
+            ]
+        )
+        async def expense_cmd(
+            interaction: discord.Interaction,
+            category: Optional[app_commands.Choice[str]] = None,
+        ):
+            if category:
+                modal = ExpenseModal(db=self.db, category=category.value)
+                await interaction.response.send_modal(modal)
+                return
+
             embed = discord.Embed(
                 title="💸 บันทึกค่าใช้จ่ายร้าน (Store Operating Expenses)",
                 description=(
