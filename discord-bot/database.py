@@ -559,7 +559,36 @@ class Database:
             )
             if resp.status_code in (200, 201):
                 data = resp.json()
-                return data[0] if isinstance(data, list) and len(data) > 0 else payload
+                created = data[0] if isinstance(data, list) and len(data) > 0 else payload
+
+                # Auto-broadcast to #web-orders
+                try:
+                    cat_labels = {
+                        "SCRIPT": "ค่าสคริปต์ฟาร์ม 📜",
+                        "VPS": "ค่า VPS / เซิร์ฟเวอร์ 💻",
+                        "ELECTRICITY": "ค่าไฟ / ค่าฮาร์ดแวร์ ⚡",
+                        "BOT_HOST": "ค่าโฮสต์บอท Discord 🤖",
+                        "OTHER": "รายจ่ายอื่นๆ 📦",
+                    }
+                    cat_str = cat_labels.get(payload["category"], payload["category"])
+                    embed_notif = {
+                        "title": f"💸 [บันทึกค่าใช้จ่ายใหม่] {payload['title']}",
+                        "description": "บันทึกค่าใช้จ่ายร้านเข้าระบบบัญชีและหักลบจากกำไรสุทธิเรียบร้อยแล้ว",
+                        "color": 0xF59E0B,
+                        "fields": [
+                            {"name": "รายการค่าใช้จ่าย", "value": f"**{payload['title']}**", "inline": True},
+                            {"name": "หมวดหมู่", "value": cat_str, "inline": True},
+                            {"name": "จำนวนเงิน", "value": f"**฿{payload['amount']:,.2f}**", "inline": True},
+                        ],
+                    }
+                    if payload.get("note"):
+                        embed_notif["fields"].append({"name": "หมายเหตุ", "value": f"```{payload['note']}```", "inline": False})
+
+                    self.send_webhook("orders", embed_notif)
+                except Exception as e:
+                    logger.warning("Failed to broadcast expense webhook: %s", e)
+
+                return created
             logger.error("Failed to add expense to Supabase: %s %s", resp.status_code, resp.text)
         except Exception as e:
             logger.error("Error adding expense: %s", e)
@@ -588,6 +617,43 @@ class Database:
             return resp.status_code in (200, 204)
         except Exception as e:
             logger.error("Error deleting expense: %s", e)
+            return False
+
+    def get_webhook_url(self, channel_key: str) -> Optional[str]:
+        try:
+            resp = requests.get(
+                f"{SUPABASE_URL}/rest/v1/WebhookChannelConfig?channelKey=eq.{channel_key}&isActive=eq.true&select=webhookUrl",
+                headers=self._supabase_headers,
+                timeout=5
+            )
+            if resp.status_code == 200:
+                rows = resp.json()
+                if rows and len(rows) > 0 and rows[0].get("webhookUrl"):
+                    return rows[0]["webhookUrl"]
+        except Exception as e:
+            logger.error("Error fetching webhook URL for %s: %s", channel_key, e)
+        return None
+
+    def send_webhook(self, channel_key: str, embed: Dict[str, Any]) -> bool:
+        url = self.get_webhook_url(channel_key)
+        if not url:
+            return False
+        payload = {
+            "username": "KaiZort System Log",
+            "avatar_url": "https://qidraqabrlnuurnlkwko.supabase.co/storage/v1/object/public/assets/kaizort_logo.png",
+            "embeds": [
+                {
+                    **embed,
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
+                    "footer": embed.get("footer") or {"text": "KaiZort Store • System Notification"},
+                }
+            ],
+        }
+        try:
+            res = requests.post(url, json=payload, timeout=5)
+            return res.status_code in (200, 204)
+        except Exception as e:
+            logger.error("Error sending webhook to %s: %s", channel_key, e)
             return False
 
     def dispense_kaitun(self, count: int, user_id: int) -> List[Dict[str, Any]]:
