@@ -48,3 +48,33 @@ def test_database_auto_creates_parent_directory(tmp_path):
     assert os.path.exists(str(db_file))
     assert db.insert_key("hash456", 2002) is True
     db.close()
+
+
+def test_add_expense_payload_includes_uuid(tmp_path, monkeypatch):
+    import requests
+    db_file = tmp_path / "test.sqlite3"
+    db = Database(str(db_file))
+
+    captured_payload = {}
+
+    class MockResponse:
+        status_code = 201
+        def json(self):
+            return [captured_payload]
+
+    def mock_post(url, headers=None, data=None, timeout=None):
+        import json
+        nonlocal captured_payload
+        captured_payload = json.loads(data)
+        return MockResponse()
+
+    monkeypatch.setattr(requests, "post", mock_post)
+
+    result = db.add_expense("ค่าสคริปต์ฟาร์ม", 150.0, "SCRIPT", "ทดสอบ")
+    assert result is not None
+    assert "id" in captured_payload
+    assert len(captured_payload["id"]) == 36  # Valid UUID4 string
+    assert captured_payload["title"] == "ค่าสคริปต์ฟาร์ม"
+    assert captured_payload["amount"] == 150.0
+    assert captured_payload["category"] == "SCRIPT"
+    db.close()

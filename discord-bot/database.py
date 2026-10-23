@@ -541,6 +541,7 @@ class Database:
     ) -> Optional[Dict[str, Any]]:
         now_iso = datetime.now(timezone.utc).isoformat()
         payload = {
+            "id": str(uuid.uuid4()),
             "title": title.strip(),
             "amount": float(amount),
             "category": category.strip().upper(),
