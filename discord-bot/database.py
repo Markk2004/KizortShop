@@ -7,6 +7,7 @@ import hashlib
 import uuid
 import json
 import requests
+import threading
 from typing import Optional, Dict, Any, List, Tuple
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
 from dotenv import load_dotenv
@@ -72,6 +73,7 @@ class Database:
     def __init__(self, path: str):
         self.path = path
         self._connection: Optional[sqlite3.Connection] = None
+        self._db_lock = threading.Lock()
         self._is_test_env = "test" in os.path.basename(path).lower() or "pytest" in path.lower() or os.getenv("TESTING") == "1"
         service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_SERVICE_ROLE_KEY
         self._supabase_headers = {
@@ -86,8 +88,14 @@ class Database:
     def connection(self) -> sqlite3.Connection:
         if self._connection is None:
             self._ensure_parent_dir()
-            self._connection = sqlite3.connect(self.path)
+            self._connection = sqlite3.connect(self.path, check_same_thread=False)
             self._connection.row_factory = sqlite3.Row
+            if not self._is_test_env:
+                try:
+                    self._connection.execute("PRAGMA journal_mode=WAL;")
+                    self._connection.execute("PRAGMA busy_timeout=5000;")
+                except Exception:
+                    pass
         return self._connection
 
     def _ensure_parent_dir(self) -> None:

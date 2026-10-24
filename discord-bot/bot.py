@@ -25,6 +25,7 @@ from provider_client import ProviderClient
 from roblox_service import RobloxService
 from kaitun_service import KaitunService
 from ticket_service import TicketService
+from agy_service import AgyService, load_agy_settings, split_for_discord
 
 logger = logging.getLogger(__name__)
 
@@ -1171,21 +1172,7 @@ class KeyValidationBot(discord.Client):
         default_ticket_db = os.path.join(base_dir, "data", "tickets.sqlite3")
         self.ticket_service = ticket_service or TicketService(default_ticket_db)
         self.tree = app_commands.CommandTree(self)
-
-        # การตั้งค่าสำหรับระบบ Monitor อัตโนมัติ (ตรวจจับหลุดเซิร์ฟเวอร์/ปิดเกม)
-        from roblox_service import get_latest_roblox_log
-        self._monitor_initialized = False
-        self._monitor_was_running = False
-        self._monitor_state_start_time = time.time()
-        self._monitor_log_file = get_latest_roblox_log()
-        self._monitor_log_pos = os.path.getsize(self._monitor_log_file) if self._monitor_log_file and os.path.exists(self._monitor_log_file) else 0
-        self._last_disconnect_alert_time = 0.0
-        self.log_channel_id = int(os.getenv("ROBLOX_LOG_CHANNEL_ID", "1559473537990000640"))
-        self.ping_user_id = os.getenv("DISCORD_USER_ID_PING", "282304584716779532").strip()
-        self.webhook_url = os.getenv(
-            "DISCORD_WEBHOOK_URL",
-            "https://discordapp.com/api/webhooks/1559473617228664873/_vT_3pfJOHOXgwnfn2PxN0cV3sXIOrVN8d2oaccc_86suf_XDoWjnF6obwPI2JnDISzR",
-        ).strip()
+        self.agy_service = AgyService(load_agy_settings())
 
         self._register_commands()
 
@@ -1535,6 +1522,32 @@ class KeyValidationBot(discord.Client):
                 message, self.service.prefix, self.service.hex_length
             )
             await interaction.response.send_message(reply, ephemeral=ephemeral)
+
+        # Command: /agy (ส่งคำสั่งทั่วไปแบบอ่านอย่างเดียวให้ Antigravity CLI)
+        @self.tree.command(
+            name="agy",
+            description="สั่งงานทั่วไปแบบอ่านอย่างเดียวผ่าน Antigravity (เฉพาะผู้ที่ได้รับอนุญาต)",
+        )
+        @app_commands.describe(prompt="คำสั่งหรือคำถามที่ต้องการให้ Antigravity ตอบ")
+        @app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.guild_id, i.user.id))
+        async def agy_command(interaction: discord.Interaction, prompt: str):
+            if not self.agy_service.is_user_allowed(interaction.user.id):
+                await interaction.response.send_message(
+                    "คุณไม่มีสิทธิ์ใช้คำสั่งนี้", ephemeral=True
+                )
+                return
+            if not self.agy_service.is_channel_allowed(interaction.channel_id):
+                await interaction.response.send_message(
+                    "คำสั่งนี้ใช้ได้เฉพาะในห้องที่กำหนดเท่านั้น", ephemeral=True
+                )
+                return
+
+            await interaction.response.defer(ephemeral=True, thinking=True)
+            result = await self.agy_service.run(prompt)
+            chunks = split_for_discord(result)
+            await interaction.followup.send(chunks[0], ephemeral=True)
+            for extra in chunks[1:5]:
+                await interaction.followup.send(extra, ephemeral=True)
 
         def _build_status_embed(info: dict) -> discord.Embed:
             is_run = info["is_running"]
@@ -3371,194 +3384,6 @@ class KeyValidationBot(discord.Client):
             )
             await message.reply(reply)
 
-    async def send_roblox_alert(
-        self,
-        content: Optional[str] = None,
-        embed: Optional[discord.Embed] = None,
-        file_path: Optional[str] = None,
-        view: Optional[discord.ui.View] = None,
-    ):
-        """ส่งการแจ้งเตือนไปยัง Channel โดยตรง และ fallback ไปยัง Webhook"""
-        channel = self.get_channel(self.log_channel_id)
-        sent = False
-        if channel:
-            try:
-                if file_path and os.path.exists(file_path):
-                    d_file = discord.File(file_path, filename=os.path.basename(file_path))
-                    if embed:
-                        embed.set_image(url=f"attachment://{os.path.basename(file_path)}")
-                    await channel.send(content=content, embed=embed, file=d_file, view=view)
-                else:
-                    await channel.send(content=content, embed=embed, view=view)
-                sent = True
-            except Exception as e:
-                logger.warning("Failed to send alert to channel %s: %s", self.log_channel_id, e)
-
-        # Fallback หรือสำรองด้วย Webhook
-        if not sent and self.webhook_url:
-            try:
-                boundary = f"----WebKitFormBoundary{int(time.time()*1000)}"
-                body = bytearray()
-                payload = {
-                    "username": "Roblox Monitor Bot",
-                    "avatar_url": "https://i.imgur.com/4M34hi2.png",
-                }
-                if content:
-                    payload["content"] = content
-                if embed:
-                    payload["embeds"] = [embed.to_dict()]
-
-                if file_path and os.path.exists(file_path):
-                    body.extend(f"--{boundary}\r\n".encode("utf-8"))
-                    body.extend(b'Content-Disposition: form-data; name="payload_json"\r\n\r\n')
-                    body.extend(json.dumps(payload, ensure_ascii=False).encode("utf-8"))
-                    body.extend(b"\r\n")
-
-                    fn = os.path.basename(file_path)
-                    body.extend(f"--{boundary}\r\n".encode("utf-8"))
-                    body.extend(f'Content-Disposition: form-data; name="files[0]"; filename="{fn}"\r\n'.encode("utf-8"))
-                    body.extend(b"Content-Type: image/png\r\n\r\n")
-                    with open(file_path, "rb") as img_f:
-                        body.extend(img_f.read())
-                    body.extend(b"\r\n")
-                    body.extend(f"--{boundary}--\r\n".encode("utf-8"))
-
-                    headers = {"Content-Type": f"multipart/form-data; boundary={boundary}", "User-Agent": "Mozilla/5.0"}
-                    req = urllib.request.Request(self.webhook_url, data=bytes(body), headers=headers, method="POST")
-                else:
-                    headers = {"Content-Type": "application/json", "User-Agent": "Mozilla/5.0"}
-                    req = urllib.request.Request(self.webhook_url, data=json.dumps(payload).encode("utf-8"), headers=headers, method="POST")
-
-                with urllib.request.urlopen(req, timeout=10) as resp:
-                    pass
-            except Exception as e:
-                logger.warning("Failed to send alert via webhook: %s", e)
-
-    @tasks.loop(seconds=10.0)
-    async def monitor_roblox_loop(self):
-        """ระบบตรวจสอบสถานะ Roblox / ตัวจำลอง และตัดการเชื่อมต่อแบบอัตโนมัติ Real-time"""
-        try:
-            active = self.roblox_service.check_processes()
-            now_running = len(active) > 0
-            now = time.time()
-
-            if not self._monitor_initialized:
-                self._monitor_was_running = now_running
-                self._monitor_state_start_time = now
-                self._monitor_initialized = True
-                return
-
-            from roblox_service import get_latest_roblox_log, check_log_disconnect, format_duration
-
-            # 1. ตรวจพบว่าเพิ่งเปิดเกม (Stopped -> Running)
-            if not self._monitor_was_running and now_running:
-                duration_offline = now - self._monitor_state_start_time
-                self._monitor_was_running = True
-                self._monitor_state_start_time = now
-                self._monitor_log_file = get_latest_roblox_log()
-                self._monitor_log_pos = os.path.getsize(self._monitor_log_file) if self._monitor_log_file and os.path.exists(self._monitor_log_file) else 0
-
-                p_details = "\n".join([f"• `{p['name']}` (PID: `{p['pid']}`, RAM: `{p['memory']}`)" for p in active])
-                embed = discord.Embed(
-                    title="🟢 Roblox / Emulator เริ่มทำงานแล้ว!",
-                    description="ตรวจพบว่าตัวเกมหรือโปรแกรมจำลองกำลังเล่นอยู่ตามปกติ",
-                    color=discord.Color.green(),
-                )
-                embed.add_field(name="🎮 Process ที่พบ", value=p_details, inline=False)
-                embed.add_field(name="⏳ ออฟไลน์ไปนาน", value=format_duration(duration_offline), inline=True)
-                embed.add_field(name="🕒 เวลาเริ่มต้น", value=datetime.now().strftime("%H:%M:%S"), inline=True)
-                embed.set_footer(text="Roblox Real-time Tracker")
-                await self.send_roblox_alert(content=None, embed=embed)
-
-            # 2. ตรวจพบว่าตัวเกมปิดตัวลง (Running -> Stopped)
-            elif self._monitor_was_running and not now_running:
-                duration_online = now - self._monitor_state_start_time
-                self._monitor_was_running = False
-                self._monitor_state_start_time = now
-
-                # ตรวจสอบ Log ว่าผู้ใช้กดออกจากเกมเองตามปกติ หรือเกมเด้ง/ดับกระทันหัน
-                is_user_exit = False
-                if self._monitor_log_file and os.path.exists(self._monitor_log_file):
-                    try:
-                        with open(self._monitor_log_file, "r", encoding="utf-8", errors="ignore") as f:
-                            tail = "".join(f.readlines()[-35:]).lower()
-                            if any(k in tail for k in ["user exit", "clean exit", "internal browser session end", "stay in tray mode"]):
-                                is_user_exit = True
-                    except Exception:
-                        pass
-
-                temp_path = os.path.join(tempfile.gettempdir(), f"exit_{int(now)}.png")
-                self.roblox_service.capture_screen(temp_path)
-
-                if is_user_exit:
-                    embed = discord.Embed(
-                        title="🚪 แจ้งเตือน: ออกจากเกมตามปกติ (User Exited)",
-                        description="ผู้ใช้กดปิดเกมหรือออกจากระบบตามปกติ",
-                        color=discord.Color.light_grey(),
-                    )
-                    embed.add_field(name="⏱️ เล่นต่อเนื่องเป็นเวลา", value=format_duration(duration_online), inline=True)
-                    embed.add_field(name="🕒 เวลาที่ปิด", value=datetime.now().strftime("%H:%M:%S"), inline=True)
-                    embed.set_footer(text="Roblox Monitor • ออกจากเกม")
-                    # ไม่แท็กปิงเมื่อกดออกเองหน้าจอ เพื่อไม่ให้มีเสียงรบกวน
-                    ping_msg = None
-                else:
-                    embed = discord.Embed(
-                        title="💥 แจ้งเตือน: เกมเด้ง/ปิดกระทันหัน (Game Crashed)!",
-                        description="⚠️ ตรวจไม่พบ Process ในระบบ ตัวเกมอาจจะ Crash, ค้าง, หรือถูก Force Close",
-                        color=discord.Color.red(),
-                    )
-                    embed.add_field(name="⏱️ เล่นต่อเนื่องเป็นเวลา", value=format_duration(duration_online), inline=True)
-                    embed.add_field(name="🕒 เวลาที่หลุด", value=datetime.now().strftime("%H:%M:%S"), inline=True)
-                    embed.set_footer(text="Roblox Monitor • ตรวจสอบด่วน")
-                    ping_msg = f"🚨 <@{self.ping_user_id}> ตรวจพบว่า Roblox เด้ง/ปิดตัวลงกระทันหัน!" if self.ping_user_id else None
-
-                btn_view = ReconnectView() if not is_user_exit else None
-                try:
-                    await self.send_roblox_alert(content=ping_msg, embed=embed, file_path=temp_path, view=btn_view)
-                finally:
-                    if os.path.exists(temp_path):
-                        try:
-                            os.remove(temp_path)
-                        except Exception:
-                            pass
-
-            # 3. กรณีตัวเกมยังรันอยู่ แต่มี Log ตัดการเชื่อมต่อ / Disconnected ภายในเกม
-            elif now_running and (now - self._last_disconnect_alert_time > 120):
-                if not self._monitor_log_file or not os.path.exists(self._monitor_log_file):
-                    self._monitor_log_file = get_latest_roblox_log()
-                    self._monitor_log_pos = os.path.getsize(self._monitor_log_file) if self._monitor_log_file and os.path.exists(self._monitor_log_file) else 0
-
-                if self._monitor_log_file and os.path.exists(self._monitor_log_file):
-                    is_disc, new_pos, reason_kw = check_log_disconnect(self._monitor_log_file, self._monitor_log_pos)
-                    self._monitor_log_pos = new_pos
-                    if is_disc:
-                        self._last_disconnect_alert_time = now
-                        temp_path = os.path.join(tempfile.gettempdir(), f"disconnect_{int(now)}.png")
-                        self.roblox_service.capture_screen(temp_path)
-
-                        embed = discord.Embed(
-                            title="⚠️ ตรวจพบการหลุดออกจากเซิร์ฟเวอร์ (Disconnected)!",
-                            description=f"ตัวเกมตัดการเชื่อมต่อหรือโดนเตะออกจากเซิร์ฟเวอร์\n(ตรวจพบคีย์เวิร์ด: `{reason_kw}`)",
-                            color=discord.Color.orange(),
-                        )
-                        embed.add_field(name="🕒 เวลาที่ตรวจพบ", value=datetime.now().strftime("%H:%M:%S"), inline=True)
-                        embed.add_field(name="ℹ️ สถานะหน้าต่าง", value="หน้าต่างเกมยังเปิดค้างอยู่ (อาจติดหน้าจอ Reconnect)", inline=True)
-                        embed.set_footer(text="Roblox Disconnect Watcher")
-
-                        ping_msg = f"⚠️ <@{self.ping_user_id}> หน้าจอเกมหลุดการเชื่อมต่อ (Disconnected: `{reason_kw}`) เข้าไปดูด่วน!" if self.ping_user_id else None
-                        btn_view = ReconnectView()
-                        try:
-                            await self.send_roblox_alert(content=ping_msg, embed=embed, file_path=temp_path, view=btn_view)
-                        finally:
-                            if os.path.exists(temp_path):
-                                try:
-                                    os.remove(temp_path)
-                                except Exception:
-                                    pass
-
-        except Exception as e:
-            logger.warning("Error in monitor_roblox_loop: %s", e)
-
     async def on_ready(self):
         if not hasattr(self, "_has_synced"):
             self._has_synced = False
@@ -3573,11 +3398,6 @@ class KeyValidationBot(discord.Client):
                 except Exception as e:
                     logger.error("Failed to sync commands to guild %s: %s", guild.id, e)
             self._has_synced = True
-
-        # 2. Start automatic background monitor loop
-        if not self.monitor_roblox_loop.is_running():
-            self.monitor_roblox_loop.start()
-            logger.info("Roblox real-time background monitor loop started.")
 
         if self.user:
             logger.info("Bot logged in successfully as %s (ID: %s)", self.user.name, self.user.id)
