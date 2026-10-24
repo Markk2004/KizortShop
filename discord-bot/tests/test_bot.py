@@ -64,6 +64,18 @@ def test_create_bot_initialization(tmp_path):
     assert post_guides_cmd is not None
     assert post_guides_cmd.name == "post_channel_guides"
 
+    accounting_cmd = bot.tree.get_command("accounting")
+    assert accounting_cmd is not None
+    assert accounting_cmd.name == "accounting"
+
+    income_cmd = bot.tree.get_command("income")
+    assert income_cmd is not None
+    assert income_cmd.name == "income"
+
+    expense_list_cmd = bot.tree.get_command("expense_list")
+    assert expense_list_cmd is not None
+    assert expense_list_cmd.name == "expense_list"
+
     database.close()
 
 
@@ -201,6 +213,30 @@ def test_create_ticket_modal():
     assert modal.order_id_input.required is False
     assert "ไม่บังคับ" in modal.order_id_input.label
     assert "รายละเอียด" in modal.detail_input.label
+
+
+def test_build_accounting_and_expense_embeds(tmp_path):
+    from bot import build_accounting_embed, build_expense_list_embed
+    from database import Database
+
+    db = Database(str(tmp_path / "bot.sqlite3"))
+    db.initialize()
+
+    # Build accounting embed
+    acc_embed = build_accounting_embed(db)
+    assert acc_embed is not None
+    assert "สรุปบัญชีการเงิน" in acc_embed.title
+    field_names = [f.name for f in acc_embed.fields]
+    assert any("รายรับ" in name for name in field_names)
+    assert any("รายจ่าย" in name for name in field_names)
+
+    # Build expense list embed
+    exp_embed = build_expense_list_embed(db)
+    if exp_embed is not None:
+        assert "รายการค่าใช้จ่ายร้านล่าสุด" in exp_embed.title
+
+    db.close()
+
 
 
 

@@ -526,6 +526,67 @@ EXPENSE_CAT_MAP = {
 }
 
 
+def build_accounting_embed(db: Database) -> discord.Embed:
+    stats = db.get_financial_stats()
+
+    revenue = stats.get("total_revenue", 0.0)
+    cost = stats.get("total_cost", 0.0)
+    expenses = stats.get("operating_expenses", 0.0)
+    profit = stats.get("net_profit", 0.0)
+    margin = stats.get("profit_margin", 100.0)
+    inv_val = stats.get("inventory_value", 0.0)
+    sold = stats.get("sold_count", 0)
+    avail = stats.get("available_count", 0)
+
+    is_loss = profit < 0
+    profit_str = (
+        "฿0.00"
+        if profit == 0
+        else (f"-฿{abs(profit):,.2f}" if is_loss else f"+฿{profit:,.2f}")
+    )
+
+    embed = discord.Embed(
+        title="📊 สรุปบัญชีการเงิน KaiZort (Cost & Profit Accounting)",
+        description="คำนวณจากยอดขายจริง ต้นทุนไอดี และค่าใช้จ่ายร้านใน Supabase Database",
+        color=discord.Color.red() if is_loss else discord.Color.green(),
+    )
+    embed.add_field(name="💰 ยอดขายจริงรวม (รายรับ)", value=f"฿{revenue:,.2f} ({sold} รายการ)", inline=True)
+    embed.add_field(name="📦 ต้นทุนไอดี (COGS)", value=f"฿{cost:,.2f}", inline=True)
+    embed.add_field(name="⚡ ค่าใช้จ่ายร้าน (รายจ่าย)", value=f"฿{expenses:,.2f}", inline=True)
+    embed.add_field(
+        name="📉 ขาดทุนสุทธิ (Net Loss)" if is_loss else "📈 กำไรสุทธิแท้จริง (Net Profit)",
+        value=f"**{profit_str}** ({margin}%)",
+        inline=True,
+    )
+    embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
+    embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
+    embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • /accounting • /admin/expense")
+    return embed
+
+
+def build_expense_list_embed(db: Database, limit: int = 15) -> Optional[discord.Embed]:
+    expenses = db.list_expenses(limit=limit)
+    if not expenses:
+        return None
+
+    total = sum(float(e.get("amount") or 0.0) for e in expenses)
+    lines = []
+    for i, e in enumerate(expenses):
+        d_str = e.get("paidAt", "")[:10]
+        cat_k = e.get("category", "OTHER")
+        cat_info = EXPENSE_CAT_MAP.get(cat_k, {"label": cat_k, "emoji": "📦"})
+        lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} ({cat_info['emoji']} `{cat_info['label']}`) • {d_str}")
+
+    embed = discord.Embed(
+        title=f"💸 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
+        description="\n".join(lines),
+        color=discord.Color.gold(),
+    )
+    embed.add_field(name="⚡ ยอดค่าใช้จ่ายรวม", value=f"**฿{total:,.2f}**", inline=False)
+    embed.set_footer(text="จัดการค่าใช้จ่ายเพิ่มเติมได้ที่หน้าเว็บ /admin/expense")
+    return embed
+
+
 class ExpenseModal(discord.ui.Modal):
     def __init__(self, db: Database, category: str = "OTHER"):
         cat_info = EXPENSE_CAT_MAP.get(category, {"label": "รายจ่ายทั่วไป", "emoji": "💸"})
@@ -2180,41 +2241,7 @@ class KeyValidationBot(discord.Client):
                     await interaction.response.defer(ephemeral=False)
                 except Exception:
                     pass
-            stats = self.db.get_financial_stats()
-
-            revenue = stats.get("total_revenue", 0.0)
-            cost = stats.get("total_cost", 0.0)
-            expenses = stats.get("operating_expenses", 0.0)
-            profit = stats.get("net_profit", 0.0)
-            margin = stats.get("profit_margin", 100.0)
-            inv_val = stats.get("inventory_value", 0.0)
-            sold = stats.get("sold_count", 0)
-            avail = stats.get("available_count", 0)
-
-            is_loss = profit < 0
-            profit_str = (
-                "฿0.00"
-                if profit == 0
-                else (f"-฿{abs(profit):,.2f}" if is_loss else f"+฿{profit:,.2f}")
-            )
-
-            embed = discord.Embed(
-                title="📊 สรุปบัญชีการเงิน KaiZort (Cost & Profit Accounting)",
-                description="คำนวณจากยอดขายจริง ต้นทุนไอดี และค่าใช้จ่ายร้านใน Supabase Database",
-                color=discord.Color.red() if is_loss else discord.Color.green(),
-            )
-            embed.add_field(name="💰 ยอดขายจริงรวม", value=f"฿{revenue:,.2f} ({sold} บัญชี)", inline=True)
-            embed.add_field(name="📦 ต้นทุนไอดี (COGS)", value=f"฿{cost:,.2f}", inline=True)
-            embed.add_field(name="⚡ ค่าใช้จ่ายร้าน", value=f"฿{expenses:,.2f}", inline=True)
-            embed.add_field(
-                name="📉 ขาดทุนสุทธิ (Net Loss)" if is_loss else "📈 กำไรสุทธิแท้จริง (Net Profit)",
-                value=f"**{profit_str}** ({margin}%)",
-                inline=True,
-            )
-            embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
-            embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
-            embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • /admin/expense")
-
+            embed = build_accounting_embed(self.db)
             if interaction.response.is_done():
                 await interaction.followup.send(embed=embed)
             else:
@@ -2376,30 +2403,14 @@ class KeyValidationBot(discord.Client):
                 except Exception:
                     pass
 
-            expenses = self.db.list_expenses(limit=15)
-            if not expenses:
+            embed = build_expense_list_embed(self.db, limit=15)
+            if not embed:
                 msg = "📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ (พิมพ์ `จ่าย <รายการ> <จำนวน>` หรือใช้ `/expense` เพื่อบันทึก)"
                 if interaction.response.is_done():
                     await interaction.followup.send(msg)
                 else:
                     await interaction.response.send_message(msg)
                 return
-
-            total = sum(float(e.get("amount") or 0.0) for e in expenses)
-            lines = []
-            for i, e in enumerate(expenses):
-                d_str = e.get("paidAt", "")[:10]
-                cat_k = e.get("category", "OTHER")
-                cat_info = EXPENSE_CAT_MAP.get(cat_k, {"label": cat_k, "emoji": "📦"})
-                lines.append(f"`{i+1}.` **{e['title']}** — ฿{float(e['amount']):,.2f} ({cat_info['emoji']} `{cat_info['label']}`) • {d_str}")
-
-            embed = discord.Embed(
-                title=f"💸 รายการค่าใช้จ่ายร้านล่าสุด ({len(expenses)} รายการ)",
-                description="\n".join(lines),
-                color=discord.Color.gold(),
-            )
-            embed.add_field(name="⚡ ยอดค่าใช้จ่ายรวม", value=f"**฿{total:,.2f}**", inline=False)
-            embed.set_footer(text="จัดการค่าใช้จ่ายเพิ่มเติมได้ที่หน้าเว็บ /admin/expense")
 
             if interaction.response.is_done():
                 await interaction.followup.send(embed=embed)
@@ -2723,6 +2734,41 @@ class KeyValidationBot(discord.Client):
                                     embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
                                     await message.reply(embed=embed)
                                     return
+
+            # Fast Chat Shortcut for Viewing Accounting / Financial Summary: บัญชี, สรุปบัญชี, กำไร, accounting, รายรับรายจ่าย
+            if lower_msg in [
+                "accounting",
+                "finance",
+                "บัญชี",
+                "สรุปบัญชี",
+                "ดูบัญชี",
+                "กำไร",
+                "กำไรสุทธิ",
+                "ยอดขาย",
+                "สรุปยอด",
+                "รายรับรายจ่าย",
+                "รายรับ",
+            ]:
+                acc_embed = build_accounting_embed(self.db)
+                await message.reply(embed=acc_embed)
+                return
+
+            # Fast Chat Shortcut for Viewing Expense List: รายจ่าย, ค่าใช้จ่าย, ดูรายจ่าย, expense list
+            if lower_msg in [
+                "รายจ่าย",
+                "ค่าใช้จ่าย",
+                "ดูรายจ่าย",
+                "ดูค่าใช้จ่าย",
+                "expense list",
+                "expenses",
+                "รายการรายจ่าย",
+            ]:
+                exp_embed = build_expense_list_embed(self.db)
+                if exp_embed:
+                    await message.reply(embed=exp_embed)
+                else:
+                    await message.reply("📦 ยังไม่มีรายการค่าใช้จ่ายร้านในระบบ (พิมพ์ `จ่าย <รายการ> <จำนวน>` หรือใช้ `/expense` เพื่อบันทึก)")
+                return
 
             # 2. Gen command
             if lower_msg.startswith("gen ") or lower_msg == "gen" or lower_msg.startswith("สุ่ม"):
