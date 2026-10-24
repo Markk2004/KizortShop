@@ -2309,6 +2309,65 @@ class KeyValidationBot(discord.Client):
             embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บทันที")
             await interaction.followup.send(embed=embed)
 
+        # Command: /income (บันทึกรายได้จากการขายไอเทม/ผลปีศาจ/บริการ)
+        @self.tree.command(
+            name="income",
+            description="บันทึกรายได้จากการขายไอเทม, ผลปีศาจ, บริการ หรือเงินในเกม เพื่อเพิ่มกำไรสุทธิ",
+        )
+        @app_commands.describe(
+            title="ชื่อสินค้า/ไอเทม/บริการ (เช่น ผลโมจิตื่น, ดาบคู่, Tap Simulator Reborn)",
+            amount="ราคาขาย (บาท)",
+            cost="ต้นทุนสินค้า (บาท, เว้นว่างได้หากไม่มีต้นทุน)",
+            note="หมายเหตุเพิ่มเติม (ถ้ามี)",
+        )
+        async def income_cmd(
+            interaction: discord.Interaction,
+            title: str,
+            amount: float,
+            cost: float = 0.0,
+            note: Optional[str] = None,
+        ):
+            await interaction.response.defer(ephemeral=False)
+            res = self.db.add_item_sale(title=title, amount=amount, cost=cost, note=note, user_id=interaction.user.id)
+            if not res:
+                await interaction.followup.send("❌ เกิดข้อผิดพลาด ไม่สามารถบันทึกรายได้ได้", ephemeral=True)
+                return
+
+            profit = float(amount) - float(cost)
+            embed = discord.Embed(
+                title=f"🎉 บันทึกรายได้สำเร็จ: {title}",
+                description="บันทึกรายได้เข้าระบบบัญชีร้าน และคำนวณเข้าสู่กำไรสุทธิเรียบร้อยแล้ว",
+                color=discord.Color.green(),
+            )
+            embed.add_field(name="📦 รายการ", value=f"**{title}**", inline=True)
+            embed.add_field(name="💰 ราคาขาย (รายได้)", value=f"**฿{amount:,.2f}**", inline=True)
+            if cost > 0:
+                embed.add_field(name="📦 ต้นทุน", value=f"฿{cost:,.2f}", inline=True)
+                embed.add_field(name="📈 กำไรสุทธิจากรายการนี้", value=f"**฿{profit:,.2f}**", inline=True)
+            if note:
+                embed.add_field(name="📝 หมายเหตุ", value=f"```{note}```", inline=False)
+            embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
+            await interaction.followup.send(embed=embed)
+
+        @self.tree.command(
+            name="sale_item",
+            description="บันทึกการขายไอเทมหรือบริการ (Alias ของ /income)",
+        )
+        @app_commands.describe(
+            title="ชื่อสินค้า/ไอเทม/บริการ",
+            amount="ราคาขาย (บาท)",
+            cost="ต้นทุน (บาท)",
+            note="หมายเหตุ",
+        )
+        async def sale_item_cmd(
+            interaction: discord.Interaction,
+            title: str,
+            amount: float,
+            cost: float = 0.0,
+            note: Optional[str] = None,
+        ):
+            await income_cmd(interaction, title, amount, cost, note)
+
         # Command: /expense_list & /expens_list
         async def _send_expense_list_response(interaction: discord.Interaction):
             if not interaction.response.is_done():
@@ -2639,6 +2698,31 @@ class KeyValidationBot(discord.Client):
                             embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับหน้าเว็บ /admin/expense ทันที")
                             await message.reply(embed=embed)
                             return
+
+            # Fast Chat Shortcut for Recording Item Sales: ขาย <ชื่อไอเทม> <ราคา> หรือ รายได้ <ชื่อ> <ราคา>
+            if (lower_msg.startswith("ขาย ") or lower_msg.startswith("ได้ ") or lower_msg.startswith("รายได้ ")) and not lower_msg.startswith("/"):
+                # Avoid conflict with "ขายแล้ว" (sold account trigger)
+                if not any(lower_msg.startswith(p) for p in ["ขายแล้ว", "ขายเเล้ว", "ขายละ", "ขายล่ะ"]):
+                    parts = raw_msg.split()
+                    if len(parts) >= 2:
+                        import re
+                        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:บาท|thb)?$", raw_msg, re.IGNORECASE)
+                        if m:
+                            amount = float(m.group(1))
+                            title = raw_msg[len(parts[0]):m.start()].strip()
+                            if title and amount > 0:
+                                res = self.db.add_item_sale(title=title, amount=amount, user_id=message.author.id)
+                                if res:
+                                    embed = discord.Embed(
+                                        title=f"🎉 บันทึกการขายไอเทมเรียบร้อย: {title}",
+                                        description="บันทึกยอดขายเข้าระบบบัญชีร้าน และเพิ่มกำไรสุทธิเรียบร้อยแล้ว",
+                                        color=discord.Color.green(),
+                                    )
+                                    embed.add_field(name="📦 รายการ", value=f"**{title}**", inline=True)
+                                    embed.add_field(name="💰 ราคาขาย (รายได้)", value=f"**฿{amount:,.2f}**", inline=True)
+                                    embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
+                                    await message.reply(embed=embed)
+                                    return
 
             # 2. Gen command
             if lower_msg.startswith("gen ") or lower_msg == "gen" or lower_msg.startswith("สุ่ม"):

@@ -698,6 +698,96 @@ class Database:
             logger.error("Error sending webhook to %s: %s", channel_key, e)
             return False
 
+    def add_item_sale(
+        self,
+        title: str,
+        amount: float,
+        cost: float = 0.0,
+        note: Optional[str] = None,
+        user_id: Optional[int] = None,
+    ) -> Optional[Dict[str, Any]]:
+        """บันทึกรายได้จากการขายไอเทม/บริการ (Non-Account Item Sale) และคำนวณเข้าสู่ระบบบัญชีทันที"""
+        now_iso = datetime.now(timezone.utc).isoformat()
+        item_id = str(uuid.uuid4())
+        serial = f"ITEM-{int(datetime.now().timestamp()) % 100000:05d}"
+
+        if self._is_test_env:
+            with self._get_connection() as conn:
+                cur = conn.cursor()
+                cur.execute(
+                    """
+                    INSERT INTO kaitun_accounts (username, password, raw_line, status, sale_status, added_by, added_at, price, farmed_maps)
+                    VALUES (?, ?, ?, 'used', 'sold', ?, datetime('now'), ?, ?)
+                    """,
+                    (f"{title.strip()} ({serial})", "ITEM_SALE", title.strip(), user_id or 0, str(amount), title.strip())
+                )
+                conn.commit()
+            return {"id": item_id, "title": title, "amount": amount, "status": "SOLD"}
+
+        product_id = self._get_default_product_id()
+        cred_hash = hash_credential(f"item_sale_{item_id}")
+        masked_id = mask_identity(title[:10])
+        encrypted_cred = encrypt_credential(f"ITEM:{title}:{note or ''}")
+
+        record = {
+            "id": item_id,
+            "serialCode": serial,
+            "productId": product_id,
+            "credentialFormat": "USER_PASS",
+            "credentialHash": cred_hash,
+            "maskedIdentity": masked_id,
+            "credentials": encrypted_cred,
+            "username": f"{title.strip()} ({serial})",
+            "farmedMaps": title.strip(),
+            "sellingPriceText": f"{float(amount):.2f}",
+            "costPrice": float(cost),
+            "details": f"ขายไอเทม/บริการ: {title.strip()}" + (f" • หมายเหตุ: {note.strip()}" if note else ""),
+            "status": "SOLD",
+            "soldAt": now_iso,
+            "addedSource": "DISCORD",
+            "addedByDiscordId": str(user_id or 0),
+            "createdAt": now_iso,
+            "updatedAt": now_iso,
+        }
+
+        try:
+            resp = requests.post(
+                f"{SUPABASE_URL}/rest/v1/AccountStock",
+                headers=self._supabase_headers,
+                data=json.dumps(record),
+                timeout=5,
+            )
+            if resp.status_code in (200, 201):
+                logger.info("Successfully recorded item sale: '%s' for ฿%s", title, amount)
+
+                # Auto-broadcast to #web-orders
+                try:
+                    embed_notif = {
+                        "title": f"🎉 [ขายไอเทม/บริการสำเร็จ] {title.strip()}",
+                        "description": "บันทึกรายได้จากการขายไอเทมเข้าระบบบัญชีและเพิ่มกำไรสุทธิเรียบร้อยแล้ว",
+                        "color": 0x10B981,
+                        "fields": [
+                            {"name": "📦 รายการสินค้า/ไอเทม", "value": f"**{title.strip()}**", "inline": True},
+                            {"name": "💰 ราคาขาย (รายได้)", "value": f"**฿{float(amount):,.2f}**", "inline": True},
+                        ],
+                    }
+                    if cost > 0:
+                        embed_notif["fields"].append({"name": "📦 ต้นทุน", "value": f"฿{float(cost):,.2f}", "inline": True})
+                        embed_notif["fields"].append({"name": "📈 กำไร", "value": f"**฿{(float(amount) - float(cost)):,.2f}**", "inline": True})
+                    if note:
+                        embed_notif["fields"].append({"name": "📝 หมายเหตุ", "value": f"```{note.strip()}```", "inline": False})
+
+                    self.send_webhook("orders", embed_notif)
+                except Exception as e:
+                    logger.warning("Failed to broadcast item sale webhook: %s", e)
+
+                return record
+            else:
+                logger.error("Failed to add item sale to Supabase: %s %s", resp.status_code, resp.text)
+        except Exception as e:
+            logger.error("Error adding item sale: %s", e)
+        return None
+
     def dispense_kaitun(self, count: int, user_id: int) -> List[Dict[str, Any]]:
         if self._is_test_env:
             return self._local_dispense(count, user_id)
