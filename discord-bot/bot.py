@@ -8,6 +8,12 @@ import urllib.error
 import tempfile
 from datetime import datetime
 from typing import Optional
+from dotenv import load_dotenv
+
+# Ensure .env is loaded before importing database or other modules
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, ".env"))
+
 import discord
 from discord import app_commands
 from discord.ext import tasks

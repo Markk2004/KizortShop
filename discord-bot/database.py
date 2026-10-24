@@ -9,8 +9,13 @@ import json
 import requests
 from typing import Optional, Dict, Any, List, Tuple
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from dotenv import load_dotenv
 
 logger = logging.getLogger(__name__)
+
+# Ensure .env is loaded before evaluating module-level constants
+_base_dir = os.path.dirname(os.path.abspath(__file__))
+load_dotenv(os.path.join(_base_dir, ".env"))
 
 SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qidraqabrlnuurnlkwko.supabase.co")
 SUPABASE_SERVICE_ROLE_KEY = os.getenv(
@@ -18,6 +23,8 @@ SUPABASE_SERVICE_ROLE_KEY = os.getenv(
     "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZHJhcWFicmxudXVybmxrd2tvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjQwMzQ5MSwiZXhwIjoyMTA3OTc5NDkxfQ.c_1QBE2T4ujEscyHUPuzkXnHW33o8KHXKyKy99eJiGM"
 )
 STOCK_ENCRYPTION_SECRET = os.getenv("STOCK_ENCRYPTION_SECRET", "kz_store_aes256_gcm_stock_vault_secret_2026")
+BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:4000").rstrip("/")
+BOT_API_KEY = os.getenv("BOT_API_KEY", "kz_internal_sync_api_key_2026_9f8c12a7")
 
 def _get_aes_key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode('utf-8')).digest()
@@ -66,9 +73,10 @@ class Database:
         self.path = path
         self._connection: Optional[sqlite3.Connection] = None
         self._is_test_env = "test" in os.path.basename(path).lower() or "pytest" in path.lower() or os.getenv("TESTING") == "1"
+        service_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY") or SUPABASE_SERVICE_ROLE_KEY
         self._supabase_headers = {
-            "apikey": SUPABASE_SERVICE_ROLE_KEY,
-            "Authorization": f"Bearer {SUPABASE_SERVICE_ROLE_KEY}",
+            "apikey": service_key,
+            "Authorization": f"Bearer {service_key}",
             "Content-Type": "application/json",
             "Prefer": "return=representation"
         }
@@ -328,6 +336,40 @@ class Database:
         if self._is_test_env:
             return self._local_add_account(username, password, cookie, raw_line, user_id)
 
+        # 1. Prefer Backend API with BOT_API_KEY if configured
+        if BACKEND_API_URL and BOT_API_KEY:
+            try:
+                resp = requests.post(
+                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/upsert",
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-bot-api-key": BOT_API_KEY,
+                    },
+                    json={
+                        "username": username,
+                        "password": password,
+                        "cookie": cookie,
+                        "discordUserId": str(user_id),
+                    },
+                    timeout=5,
+                )
+                if resp.status_code == 201 or resp.status_code == 200:
+                    data = resp.json()
+                    status = data.get("status", "created")
+                    if status == "created":
+                        return "created", {"username": username, "serialCode": data.get("serialCode")}
+                    else:
+                        return "password_updated", {"username": username, "serialCode": data.get("serialCode")}
+                else:
+                    logger.warning(
+                        "Backend API sync returned HTTP %s: %s, falling back to direct Supabase REST",
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception as e:
+                logger.error("Failed to sync account via Backend API: %s, falling back to direct Supabase REST", e)
+
+        # 2. Direct Supabase REST Fallback
         existing = self.get_kaitun_account(username)
         if existing:
             if existing.get("password") == password:
@@ -710,6 +752,33 @@ class Database:
         if self._is_test_env:
             return self._local_update(username, password, farmed_maps, details, sale_status, price)
 
+        # 1. Prefer Backend API for marking as sold
+        if sale_status == "sold" and BACKEND_API_URL and BOT_API_KEY:
+            try:
+                resp = requests.post(
+                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/sold",
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-bot-api-key": BOT_API_KEY,
+                    },
+                    json={"username": username, "actor": "Discord Python Bot"},
+                    timeout=5,
+                )
+                if resp.status_code in (200, 201):
+                    try:
+                        self._local_update(username, password, farmed_maps, details, sale_status, price)
+                    except Exception:
+                        pass
+                    return True
+                else:
+                    logger.warning(
+                        "Backend API sold returned HTTP %s: %s, falling back to direct Supabase REST",
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception as e:
+                logger.error("Failed to mark sold via Backend API: %s, falling back to direct Supabase REST", e)
+
         acc = self.get_kaitun_account(username)
         if not acc:
             return False
@@ -787,6 +856,29 @@ class Database:
                 cur.execute("DELETE FROM kaitun_accounts WHERE username = ? COLLATE NOCASE", (username.strip(),))
                 conn.commit()
                 return cur.rowcount > 0
+
+        # 1. Prefer Backend API if configured
+        if BACKEND_API_URL and BOT_API_KEY:
+            try:
+                resp = requests.post(
+                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/remove",
+                    headers={
+                        "Content-Type": "application/json",
+                        "x-bot-api-key": BOT_API_KEY,
+                    },
+                    json={"username": username, "actor": "Discord Python Bot"},
+                    timeout=5,
+                )
+                if resp.status_code in (200, 201):
+                    return True
+                else:
+                    logger.warning(
+                        "Backend API remove returned HTTP %s: %s, falling back to direct Supabase REST",
+                        resp.status_code,
+                        resp.text,
+                    )
+            except Exception as e:
+                logger.error("Failed to remove account via Backend API: %s, falling back to direct Supabase REST", e)
 
         acc = self.get_kaitun_account(username)
         if not acc:
