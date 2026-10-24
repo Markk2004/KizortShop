@@ -1,94 +1,233 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { PrismaService } from '../prisma/prisma.service';
+import { DiscordOutboxService } from '../discord/discord-outbox.service';
+import {
+  DISCORD_COLORS,
+  DiscordBotType,
+  DiscordChannelKey,
+  DiscordEmbedField,
+  DiscordEmbedPayload,
+  DiscordMessagePayload,
+} from '../discord/discord.constants';
 
-export type WebhookChannelKey =
-  | 'kaitun_sync'
-  | 'orders'
-  | 'topups'
-  | 'stocks'
-  | 'catalog'
-  | 'members'
-  | 'tickets_audit';
-
-export interface DiscordEmbedField {
-  name: string;
-  value: string;
-  inline?: boolean;
-}
-
-export interface DiscordEmbedPayload {
-  title: string;
-  description?: string;
-  color?: number; // e.g. 0x10B981 (green), 0xEF4444 (red), 0xF59E0B (amber), 0x3B82F6 (blue)
-  fields?: DiscordEmbedField[];
-  footer?: { text: string; icon_url?: string };
-  timestamp?: string;
-}
+export type WebhookChannelKey = DiscordChannelKey;
+export { DiscordEmbedField, DiscordEmbedPayload };
 
 @Injectable()
-export class DiscordWebhookService {
+export class DiscordWebhookService implements OnModuleInit {
   private readonly logger = new Logger(DiscordWebhookService.name);
+  private readonly alertCooldownMap = new Map<string, number>();
 
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly outboxService: DiscordOutboxService,
+    private readonly config: ConfigService,
+  ) {}
+
+  async onModuleInit(): Promise<void> {
+    await this.bootstrapDefaultChannels();
+  }
 
   /**
-   * ส่ง Discord Embed ไปยังช่องที่ระบุ (ค้นหา Webhook URL จาก WebhookChannelConfig ใน Supabase)
+   * Ensure default webhook channel configs exist in database
    */
-  async sendEmbed(channelKey: WebhookChannelKey, embed: DiscordEmbedPayload): Promise<boolean> {
+  async bootstrapDefaultChannels(): Promise<void> {
+    const defaultChannels: { key: DiscordChannelKey; name: string; desc: string }[] = [
+      { key: 'orders', name: '#web-orders', desc: 'แจ้งเตือนคำสั่งซื้อใหม่' },
+      { key: 'topups', name: '#web-topups', desc: 'แจ้งเตือนการแจ้งโอนเงินและเติมเงิน' },
+      { key: 'stocks', name: '#web-stock-logs', desc: 'แจ้งเตือนการลงของและสต็อกต่ำ' },
+      { key: 'catalog', name: '#web-catalog', desc: 'อัปเดตรายการสินค้าและแค็ตตาล็อก' },
+      { key: 'members', name: '#web-members', desc: 'แจ้งเตือนสมาชิกใหม่' },
+      { key: 'tickets_audit', name: '#web-tickets-audit', desc: 'แจ้งเตือนตั๋วช่วยเหลือ' },
+      { key: 'kaitun_sync', name: '#kaitun-id', desc: 'ซิงค์สถานะไอดีไก่ตัน' },
+      { key: 'system_alerts', name: '#web-system-alerts', desc: 'แจ้งเตือนสถานะความสมบูรณ์และเหตุขัดข้องของระบบ' },
+    ];
+
     try {
-      const config = await this.prisma.webhookChannelConfig.findUnique({
-        where: { channelKey },
-      });
-
-      if (!config || !config.isActive || !config.webhookUrl) {
-        this.logger.debug(`Discord Webhook for channel '${channelKey}' is not configured or inactive`);
-        return false;
+      for (const ch of defaultChannels) {
+        const existing = await this.prisma.webhookChannelConfig.findUnique({
+          where: { channelKey: ch.key },
+        });
+        if (!existing) {
+          await this.prisma.webhookChannelConfig.create({
+            data: {
+              channelKey: ch.key,
+              channelName: ch.name,
+              channelId: '',
+              webhookUrl: '',
+              isActive: true,
+              description: ch.desc,
+            },
+          });
+          this.logger.log(`Initialized default channel config for [${ch.key}] (${ch.name})`);
+        }
       }
-
-      const payload = {
-        username: 'KaiZort System Log',
-        avatar_url: 'https://qidraqabrlnuurnlkwko.supabase.co/storage/v1/object/public/assets/kaizort_logo.png',
-        embeds: [
-          {
-            ...embed,
-            timestamp: embed.timestamp || new Date().toISOString(),
-            footer: embed.footer || { text: 'KaiZort Store • Web Notification' },
-          },
-        ],
-      };
-
-      const res = await fetch(config.webhookUrl, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify(payload),
-      });
-
-      if (!res.ok) {
-        this.logger.warn(`Failed to send Discord webhook [${channelKey}]: ${res.status} ${res.statusText}`);
-        return false;
-      }
-
-      return true;
     } catch (err: any) {
-      this.logger.error(`Error sending Discord webhook to [${channelKey}]: ${err.message}`, err.stack);
-      return false;
+      this.logger.warn(`Could not bootstrap default channel configs: ${err.message}`);
     }
   }
 
-  // --- Helper Methods for Specific Web Events ---
+  /**
+   * Main method to send embed to a channel key via guaranteed Outbox delivery
+   */
+  async sendEmbed(
+    channelKey: WebhookChannelKey,
+    embed: DiscordEmbedPayload,
+    botType: DiscordBotType = 'notify',
+    content?: string,
+  ): Promise<boolean> {
+    const payload: DiscordMessagePayload = {
+      content,
+      embeds: [
+        {
+          ...embed,
+          timestamp: embed.timestamp || new Date().toISOString(),
+          footer: embed.footer || { text: 'KaiZort Store - Automated System' },
+        },
+      ],
+    };
+
+    return await this.outboxService.enqueue(channelKey, payload, botType);
+  }
+
+  /**
+   * Send a system alert with severity, cooldown, and optional admin role mention
+   */
+  async notifySystemAlert(data: {
+    title: string;
+    message: string;
+    severity: 'INFO' | 'WARN' | 'CRITICAL' | 'RESOLVED';
+    metadata?: Record<string, any>;
+    alertKey?: string;
+    cooldownMinutes?: number;
+  }): Promise<boolean> {
+    const cooldownKey = data.alertKey || data.title;
+    const cooldownMs = (data.cooldownMinutes ?? 10) * 60 * 1000;
+    const now = new Date();
+    const nowMs = now.getTime();
+
+    // Check persistent mute / cooldown in AlertState
+    try {
+      const existingState = await this.prisma.alertState.findUnique({
+        where: { key: cooldownKey },
+      });
+
+      // 1. Check if muted
+      if (existingState?.mutedUntil && existingState.mutedUntil > now) {
+        this.logger.debug(
+          `System alert '${cooldownKey}' is muted until ${existingState.mutedUntil.toISOString()}`,
+        );
+        return false;
+      }
+
+      // 2. Check cooldown (unless RESOLVED)
+      if (data.severity !== 'RESOLVED' && existingState?.lastSentAt) {
+        const elapsed = nowMs - existingState.lastSentAt.getTime();
+        if (elapsed < cooldownMs) {
+          this.logger.debug(
+            `System alert '${cooldownKey}' throttled by persistent cooldown (${Math.round(
+              (cooldownMs - elapsed) / 1000,
+            )}s remaining)`,
+          );
+          return false;
+        }
+      }
+
+      // Upsert persistent state
+      await this.prisma.alertState.upsert({
+        where: { key: cooldownKey },
+        create: {
+          key: cooldownKey,
+          lastSentAt: now,
+          metadata: data.metadata as any,
+        },
+        update: {
+          lastSentAt: now,
+          metadata: data.metadata as any,
+        },
+      });
+    } catch (err: any) {
+      // Fast in-memory fallback if DB fails
+      if (data.severity !== 'RESOLVED' && this.alertCooldownMap.has(cooldownKey)) {
+        const lastTime = this.alertCooldownMap.get(cooldownKey)!;
+        if (nowMs - lastTime < cooldownMs) {
+          return false;
+        }
+      }
+      this.alertCooldownMap.set(cooldownKey, nowMs);
+    }
+
+    const color =
+      data.severity === 'CRITICAL'
+        ? DISCORD_COLORS.DANGER
+        : data.severity === 'WARN'
+        ? DISCORD_COLORS.WARNING
+        : data.severity === 'RESOLVED'
+        ? DISCORD_COLORS.SUCCESS
+        : DISCORD_COLORS.INFO;
+
+    const fields: DiscordEmbedField[] = [
+      { name: 'ระดับความรุนแรง', value: `\`${data.severity}\``, inline: true },
+      {
+        name: 'เวลาที่เกิดเหตุ',
+        value: `<t:${Math.floor(nowMs / 1000)}:R>`,
+        inline: true,
+      },
+    ];
+
+    if (data.metadata) {
+      const metaStrings = Object.entries(data.metadata)
+        .slice(0, 10)
+        .map(([k, v]) => `• ${k}: \`${typeof v === 'object' ? JSON.stringify(v) : v}\``);
+      if (metaStrings.length > 0) {
+        fields.push({
+          name: 'ข้อมูลทางเทคนิค (Details)',
+          value: metaStrings.join('\n'),
+          inline: false,
+        });
+      }
+    }
+
+    const adminRoleId = this.config.get<string>('DISCORD_ADMIN_ROLE_ID');
+    let mentionContent: string | undefined = undefined;
+    if (data.severity === 'CRITICAL' && adminRoleId) {
+      mentionContent = `<@&${adminRoleId}> [ALERT] ตรวจพบเหตุขัดข้องของระบบ!`;
+    }
+
+    return await this.sendEmbed(
+      'system_alerts',
+      {
+        title: `[ระบบเฝ้าระวัง] ${data.title}`,
+        description: data.message,
+        color,
+        fields,
+      },
+      'ops',
+      mentionContent,
+    );
+  }
 
   /**
    * แจ้งเตือนอัปเดตไอดีไก่ตันกลับไปยังห้อง #kaitun-id (2-way sync notification)
    */
-  async notifyKaitunSync(action: 'SOLD' | 'AVAILABLE' | 'PASSWORD_UPDATED' | 'DETAILS_UPDATED', data: {
-    username: string;
-    details?: string;
-    farmedMaps?: string;
-    price?: string;
-    actor?: string;
-  }) {
+  async notifyKaitunSync(
+    action: 'SOLD' | 'AVAILABLE' | 'PASSWORD_UPDATED' | 'DETAILS_UPDATED',
+    data: {
+      username: string;
+      details?: string;
+      farmedMaps?: string;
+      price?: string;
+      actor?: string;
+    },
+  ) {
     const isSold = action === 'SOLD';
-    const color = isSold ? 0xEF4444 : action === 'PASSWORD_UPDATED' ? 0xF59E0B : 0x10B981;
+    const color = isSold
+      ? DISCORD_COLORS.DANGER
+      : action === 'PASSWORD_UPDATED'
+      ? DISCORD_COLORS.WARNING
+      : DISCORD_COLORS.SUCCESS;
+
     const title = isSold
       ? `[เว็บขายแล้ว] บัญชี ${data.username} ถูกขายแล้ว`
       : action === 'PASSWORD_UPDATED'
@@ -97,14 +236,36 @@ export class DiscordWebhookService {
 
     await this.sendEmbed('kaitun_sync', {
       title,
-      description: `สถานะไอดี: ${isSold ? 'ขายแล้ว (SOLD)' : 'พร้อมขาย (AVAILABLE)'}\nอัปเดตจาก: ${data.actor || 'ระบบเว็บไซต์ KaiZort Store'}`,
+      description: `สถานะไอดี: ${
+        isSold ? 'ขายแล้ว (SOLD)' : 'พร้อมขาย (AVAILABLE)'
+      }\nอัปเดตจาก: ${data.actor || 'ระบบเว็บไซต์ KaiZort Store'}`,
       color,
       fields: [
-        { name: 'ชื่อไอดี (Username)', value: `\`${data.username}\``, inline: true },
-        { name: 'สถานะการขาย', value: isSold ? 'ขายแล้ว' : 'ยังไม่ขาย', inline: true },
-        { name: 'ราคา', value: data.price ? `\`${data.price}\`` : '-', inline: true },
-        { name: 'แมพที่ฟาร์ม', value: data.farmedMaps ? `\`${data.farmedMaps}\`` : 'ยังไม่ได้ระบุ', inline: false },
-        { name: 'รายละเอียดของในไอดี', value: data.details ? `\`\`\`${data.details}\`\`\`` : 'ยังไม่ได้ระบุ', inline: false },
+        {
+          name: 'ชื่อไอดี (Username)',
+          value: `\`${data.username}\``,
+          inline: true,
+        },
+        {
+          name: 'สถานะการขาย',
+          value: isSold ? 'ขายแล้ว' : 'ยังไม่ขาย',
+          inline: true,
+        },
+        {
+          name: 'ราคา',
+          value: data.price ? `\`${data.price}\`` : '-',
+          inline: true,
+        },
+        {
+          name: 'แมพที่ฟาร์ม',
+          value: data.farmedMaps ? `\`${data.farmedMaps}\`` : 'ยังไม่ได้ระบุ',
+          inline: false,
+        },
+        {
+          name: 'รายละเอียดของในไอดี',
+          value: data.details ? `\`\`\`${data.details}\`\`\`` : 'ยังไม่ได้ระบุ',
+          inline: false,
+        },
       ],
     });
   }
@@ -123,14 +284,33 @@ export class DiscordWebhookService {
     await this.sendEmbed('orders', {
       title: `[คำสั่งซื้อใหม่] เลขที่ ${data.orderNumber}`,
       description: `ลูกค้าสั่งซื้อและรับสินค้าสำเร็จทันที`,
-      color: 0x10B981,
+      color: DISCORD_COLORS.SUCCESS,
       fields: [
-        { name: 'เลขที่ออเดอร์', value: `\`${data.orderNumber}\``, inline: true },
+        {
+          name: 'เลขที่ออเดอร์',
+          value: `\`${data.orderNumber}\``,
+          inline: true,
+        },
         { name: 'ผู้สั่งซื้อ', value: `\`${data.username}\``, inline: true },
-        { name: 'ยอดชำระ', value: `${data.amount.toLocaleString()} บาท`, inline: true },
+        {
+          name: 'ยอดชำระ',
+          value: `${data.amount.toLocaleString()} บาท`,
+          inline: true,
+        },
         { name: 'สินค้าที่ซื้อ', value: data.productTitle, inline: false },
-        { name: 'รหัสสินค้าในสต๊อกที่ส่งมอบ', value: data.stockSerial ? `\`${data.stockSerial}\`` : '-', inline: true },
-        { name: 'สต๊อกคงเหลือของสินค้านี้', value: data.remainingStockCount !== undefined ? `${data.remainingStockCount} ชิ้น` : '-', inline: true },
+        {
+          name: 'รหัสสินค้าในสต๊อกที่ส่งมอบ',
+          value: data.stockSerial ? `\`${data.stockSerial}\`` : '-',
+          inline: true,
+        },
+        {
+          name: 'สต๊อกคงเหลือของสินค้านี้',
+          value:
+            data.remainingStockCount !== undefined
+              ? `${data.remainingStockCount} ชิ้น`
+              : '-',
+          inline: true,
+        },
       ],
     });
   }
@@ -145,14 +325,75 @@ export class DiscordWebhookService {
     slipRef?: string;
     slipUrl?: string;
   }) {
+    const largeTopupThreshold = parseInt(
+      this.config.get<string>('LARGE_TOPUP_AMOUNT') || '2000',
+      10,
+    );
+    const isLarge = data.amount >= largeTopupThreshold;
+
+    const fields: DiscordEmbedField[] = [
+      { name: 'ผู้ใช้งาน', value: `\`${data.username}\``, inline: true },
+      {
+        name: 'จำนวนเงิน',
+        value: `${data.amount.toLocaleString()} บาท`,
+        inline: true,
+      },
+      { name: 'ช่องทาง', value: data.paymentMethod, inline: true },
+      {
+        name: 'เลขอ้างอิงสลิป',
+        value: data.slipRef ? `\`${data.slipRef}\`` : 'ไม่มี',
+        inline: false,
+      },
+    ];
+
+    if (isLarge) {
+      fields.push({
+        name: 'ข้อสังเกต',
+        value: `ตรวจพบยอดเติมเงินสูง (>= ${largeTopupThreshold.toLocaleString()} บาท) กรุณาตรวจสอบสลิปอย่างละเอียด`,
+        inline: false,
+      });
+    }
+
     await this.sendEmbed('topups', {
-      title: `[แจ้งโอนเงิน] สมาชิก ${data.username} ส่งคำขอเติมเงิน`,
-      color: 0x3B82F6,
+      title: isLarge
+        ? `[แจ้งโอนเงิน - ยอดเงินสูง] สมาชิก ${data.username} เติมเงิน ${data.amount.toLocaleString()} บาท`
+        : `[แจ้งโอนเงิน] สมาชิก ${data.username} ส่งคำขอเติมเงิน`,
+      color: isLarge ? DISCORD_COLORS.WARNING : DISCORD_COLORS.INFO,
+      fields,
+    });
+  }
+
+  /**
+   * แจ้งเตือนการอนุมัติหรือปฏิเสธการเติมเงิน
+   */
+  async notifyTopupVerified(data: {
+    username: string;
+    amount: number;
+    status: 'SUCCESS' | 'REJECTED';
+    verifiedBy: string;
+    reason?: string;
+  }) {
+    const isApproved = data.status === 'SUCCESS';
+    await this.sendEmbed('topups', {
+      title: isApproved
+        ? `[อนุมัติเติมเงิน] สมาชิก ${data.username} เติมเงินสำเร็จ`
+        : `[ปฏิเสธเติมเงิน] สมาชิก ${data.username} คำขอถูกปฏิเสธ`,
+      color: isApproved ? DISCORD_COLORS.SUCCESS : DISCORD_COLORS.DANGER,
       fields: [
         { name: 'ผู้ใช้งาน', value: `\`${data.username}\``, inline: true },
-        { name: 'จำนวนเงิน', value: `${data.amount.toLocaleString()} บาท`, inline: true },
-        { name: 'ช่องทาง', value: data.paymentMethod, inline: true },
-        { name: 'เลขอ้างอิงสลิป', value: data.slipRef ? `\`${data.slipRef}\`` : 'ไม่มี', inline: false },
+        {
+          name: 'จำนวนเงิน',
+          value: `${data.amount.toLocaleString()} บาท`,
+          inline: true,
+        },
+        {
+          name: 'ผู้ดำเนินการ',
+          value: `\`${data.verifiedBy}\``,
+          inline: true,
+        },
+        ...(data.reason
+          ? [{ name: 'สาเหตุ', value: data.reason, inline: false }]
+          : []),
       ],
     });
   }
@@ -170,29 +411,41 @@ export class DiscordWebhookService {
     const fields: DiscordEmbedField[] = [
       { name: 'สินค้า', value: data.productTitle, inline: false },
       { name: 'จำนวนที่เพิ่ม', value: `${data.count} บัญชี`, inline: true },
-      { name: 'รหัสล็อต (Batch)', value: data.batchCode ? `\`${data.batchCode}\`` : '-', inline: true },
-      { name: 'ซัพพลายเออร์', value: data.supplierName ? `\`${data.supplierName}\`` : '-', inline: true },
+      {
+        name: 'รหัสล็อต (Batch)',
+        value: data.batchCode ? `\`${data.batchCode}\`` : '-',
+        inline: true,
+      },
+      {
+        name: 'ซัพพลายเออร์',
+        value: data.supplierName ? `\`${data.supplierName}\`` : '-',
+        inline: true,
+      },
     ];
     if (data.usernames && data.usernames.length > 0) {
       fields.push({
         name: 'รายชื่อไอดีที่เพิ่ม',
-        value: data.usernames.slice(0, 15).map((u) => `• \`${u}\``).join('\n'),
+        value: data.usernames
+          .slice(0, 15)
+          .map((u) => `• \`${u}\``)
+          .join('\n'),
         inline: false,
       });
     }
 
-    await this.sendEmbed('stocks', {
-      title: `[เพิ่มสต๊อกใหม่จากเว็บ] นำเข้ารหัสจำนวน ${data.count} บัญชี`,
-      color: 0x10B981,
-      fields,
-    });
-
-    await this.sendEmbed('kaitun_sync', {
-      title: `[เว็บเพิ่มสต๊อกใหม่] นำเข้า ${data.count} บัญชี เข้าสู่คลัง`,
-      description: `สินค้า: **${data.productTitle}**`,
-      color: 0x10B981,
-      fields,
-    });
+    await Promise.allSettled([
+      this.sendEmbed('stocks', {
+        title: `[เพิ่มสต๊อกใหม่จากเว็บ] นำเข้ารหัสจำนวน ${data.count} บัญชี`,
+        color: DISCORD_COLORS.SUCCESS,
+        fields,
+      }),
+      this.sendEmbed('kaitun_sync', {
+        title: `[เว็บเพิ่มสต๊อกใหม่] นำเข้า ${data.count} บัญชี เข้าสู่คลัง`,
+        description: `สินค้า: **${data.productTitle}**`,
+        color: DISCORD_COLORS.SUCCESS,
+        fields,
+      }),
+    ]);
   }
 
   /**
@@ -204,21 +457,99 @@ export class DiscordWebhookService {
     productTitle?: string;
   }) {
     const fields: DiscordEmbedField[] = [
-      { name: 'ชื่อไอดี (Username)', value: `\`${data.username || '-'}\``, inline: true },
+      {
+        name: 'ชื่อไอดี (Username)',
+        value: `\`${data.username || '-'}\``,
+        inline: true,
+      },
       { name: 'Serial Code', value: `\`${data.serialCode}\``, inline: true },
       { name: 'สินค้า', value: data.productTitle || '-', inline: false },
     ];
 
-    await this.sendEmbed('stocks', {
-      title: `[นำไอดีออกจากคลัง] ลบสต๊อก ${data.username || data.serialCode}`,
-      color: 0xEF4444,
-      fields,
-    });
+    await Promise.allSettled([
+      this.sendEmbed('stocks', {
+        title: `[นำไอดีออกจากคลัง] ลบสต๊อก ${data.username || data.serialCode}`,
+        color: DISCORD_COLORS.DANGER,
+        fields,
+      }),
+      this.sendEmbed('kaitun_sync', {
+        title: `[เว็บนำไอดีออก] บัญชี ${
+          data.username || data.serialCode
+        } ถูกลบออกจากสต๊อก`,
+        color: DISCORD_COLORS.DANGER,
+        fields,
+      }),
+    ]);
+  }
 
-    await this.sendEmbed('kaitun_sync', {
-      title: `[เว็บนำไอดีออก] บัญชี ${data.username || data.serialCode} ถูกลบออกจากสต๊อก`,
-      color: 0xEF4444,
-      fields,
+  /**
+   * แจ้งเตือนเมื่อสต็อกสินค้าเหลือน้อย (#stocks)
+   */
+  async notifyLowStock(data: {
+    productTitle: string;
+    code: string;
+    remaining: number;
+    threshold: number;
+  }) {
+    const alertKey = `low_stock_${data.code}`;
+    const now = new Date();
+    const nowMs = now.getTime();
+    const cooldownMs = 60 * 60 * 1000; // 1 hour cooldown per product
+
+    try {
+      const existingState = await this.prisma.alertState.findUnique({
+        where: { key: alertKey },
+      });
+
+      if (existingState?.mutedUntil && existingState.mutedUntil > now) {
+        return;
+      }
+
+      if (existingState?.lastSentAt) {
+        const elapsed = nowMs - existingState.lastSentAt.getTime();
+        if (elapsed < cooldownMs) {
+          return;
+        }
+      }
+
+      await this.prisma.alertState.upsert({
+        where: { key: alertKey },
+        create: {
+          key: alertKey,
+          lastSentAt: now,
+          metadata: { remaining: data.remaining, threshold: data.threshold },
+        },
+        update: {
+          lastSentAt: now,
+          metadata: { remaining: data.remaining, threshold: data.threshold },
+        },
+      });
+    } catch {
+      // In-memory fallback
+      if (this.alertCooldownMap.has(alertKey)) {
+        if (nowMs - this.alertCooldownMap.get(alertKey)! < cooldownMs) return;
+      }
+      this.alertCooldownMap.set(alertKey, nowMs);
+    }
+
+    const isDepleted = data.remaining <= 0;
+    await this.sendEmbed('stocks', {
+      title: isDepleted
+        ? `[สินค้าหมดสต็อก] ${data.productTitle}`
+        : `[เตือนสต็อกเหลือน้อย] ${data.productTitle}`,
+      description: isDepleted
+        ? `สินค้า SKU \`${data.code}\` ขณะนี้ไม่มีสินค้าในสต็อกแล้ว กรุณาลงของเพิ่มเติม`
+        : `สินค้า SKU \`${data.code}\` เหลือเพียง ${data.remaining} ชิ้น (เกณฑ์เตือน: ${data.threshold} ชิ้น)`,
+      color: isDepleted ? DISCORD_COLORS.DANGER : DISCORD_COLORS.WARNING,
+      fields: [
+        { name: 'สินค้า', value: data.productTitle, inline: true },
+        { name: 'รหัส SKU', value: `\`${data.code}\``, inline: true },
+        {
+          name: 'จำนวนคงเหลือ',
+          value: `${data.remaining} ชิ้น`,
+          inline: true,
+        },
+      ],
     });
   }
 
@@ -237,10 +568,10 @@ export class DiscordWebhookService {
   }) {
     const typeLabel = data.type === 'CATEGORY' ? 'หมวดหมู่' : 'สินค้า';
     const actionMap = {
-      CREATED: { label: 'สร้างใหม่', color: 0x10B981 },
-      UPDATED: { label: 'แก้ไขข้อมูล', color: 0x3B82F6 },
-      STATUS_CHANGED: { label: 'เปลี่ยนสถานะ', color: 0xF59E0B },
-      DELETED: { label: 'นำออก/ลบ', color: 0xEF4444 },
+      CREATED: { label: 'สร้างใหม่', color: DISCORD_COLORS.SUCCESS },
+      UPDATED: { label: 'แก้ไขข้อมูล', color: DISCORD_COLORS.INFO },
+      STATUS_CHANGED: { label: 'เปลี่ยนสถานะ', color: DISCORD_COLORS.WARNING },
+      DELETED: { label: 'นำออก/ลบ', color: DISCORD_COLORS.DANGER },
     };
     const act = actionMap[data.action];
 
@@ -248,19 +579,35 @@ export class DiscordWebhookService {
       { name: `ชื่อ${typeLabel}`, value: `**${data.name}**`, inline: true },
     ];
     if (data.code) {
-      fields.push({ name: 'รหัส/Slug', value: `\`${data.code}\``, inline: true });
+      fields.push({
+        name: 'รหัส/Slug',
+        value: `\`${data.code}\``,
+        inline: true,
+      });
     }
     if (data.categoryName) {
       fields.push({ name: 'หมวดหมู่', value: data.categoryName, inline: true });
     }
     if (data.price !== undefined) {
-      fields.push({ name: 'ราคา', value: `฿${data.price.toLocaleString()}`, inline: true });
+      fields.push({
+        name: 'ราคา',
+        value: `${data.price.toLocaleString()} บาท`,
+        inline: true,
+      });
     }
     if (data.stock !== undefined) {
-      fields.push({ name: 'สต็อกคงเหลือ', value: `${data.stock} ไอดี`, inline: true });
+      fields.push({
+        name: 'สต็อกคงเหลือ',
+        value: `${data.stock} ไอดี`,
+        inline: true,
+      });
     }
     if (data.status) {
-      fields.push({ name: 'สถานะ', value: `\`${data.status}\``, inline: true });
+      fields.push({
+        name: 'สถานะ',
+        value: `\`${data.status}\``,
+        inline: true,
+      });
     }
 
     await this.sendEmbed('catalog', {
@@ -281,46 +628,98 @@ export class DiscordWebhookService {
   }) {
     await this.sendEmbed('tickets_audit', {
       title: `[ความปลอดภัย] ${data.action}`,
-      color: 0xF59E0B,
+      color: DISCORD_COLORS.WARNING,
       fields: [
         { name: 'ผู้กระทำรายการ', value: `\`${data.actor}\``, inline: true },
         { name: 'เป้าหมาย', value: `\`${data.target}\``, inline: true },
-        { name: 'IP Address', value: data.ipAddress ? `\`${data.ipAddress}\`` : '-', inline: true },
+        {
+          name: 'IP Address',
+          value: data.ipAddress ? `\`${data.ipAddress}\`` : '-',
+          inline: true,
+        },
       ],
+    });
+  }
+
+  /**
+   * แจ้งเตือนตั๋วซัพพอร์ตใหม่ (#tickets_audit)
+   */
+  async notifyTicketCreated(data: {
+    ticketId: string;
+    username: string;
+    subject: string;
+    detail: string;
+    orderId?: string;
+  }) {
+    const fields: DiscordEmbedField[] = [
+      { name: 'ผู้เปิดคำร้อง', value: `\`${data.username}\``, inline: true },
+      { name: 'หัวข้อ', value: data.subject, inline: true },
+    ];
+    if (data.orderId) {
+      fields.push({
+        name: 'อ้างอิงออเดอร์',
+        value: `\`${data.orderId}\``,
+        inline: true,
+      });
+    }
+    fields.push({
+      name: 'รายละเอียดปัญหา',
+      value: `\`\`\`${data.detail.slice(0, 500)}\`\`\``,
+      inline: false,
+    });
+
+    await this.sendEmbed('tickets_audit', {
+      title: `[ตั๋วช่วยเหลือใหม่] รหัส ${data.ticketId.slice(0, 8)}`,
+      description: 'มีลูกค้าเปิดตั๋วติดต่อทีมงาน กรุณาตรวจสอบและให้ความช่วยเหลือ',
+      color: DISCORD_COLORS.WARNING,
+      fields,
     });
   }
 
   /**
    * แจ้งเตือนการบันทึกหรือลบค่าใช้จ่ายร้าน (#kaitun-id และ #web-orders)
    */
-  async notifyExpenseAction(action: 'CREATED' | 'DELETED', data: {
-    title: string;
-    category: string;
-    amount: number;
-    note?: string;
-    actor?: string;
-  }) {
+  async notifyExpenseAction(
+    action: 'CREATED' | 'DELETED',
+    data: {
+      title: string;
+      category: string;
+      amount: number;
+      note?: string;
+      actor?: string;
+    },
+  ) {
     const isCreated = action === 'CREATED';
     const categoryLabels: Record<string, string> = {
-      SCRIPT: 'ค่าสคริปต์ฟาร์ม 📜',
-      VPS: 'ค่า VPS / เซิร์ฟเวอร์ 💻',
-      ELECTRICITY: 'ค่าไฟ / ค่าฮาร์ดแวร์ ⚡',
-      BOT_HOST: 'ค่าโฮสต์บอท Discord 🤖',
-      OTHER: 'รายจ่ายอื่นๆ 📦',
+      SCRIPT: 'ค่าสคริปต์ฟาร์ม',
+      VPS: 'ค่า VPS / เซิร์ฟเวอร์',
+      ELECTRICITY: 'ค่าไฟ / ค่าฮาร์ดแวร์',
+      BOT_HOST: 'ค่าโฮสต์บอท Discord',
+      OTHER: 'รายจ่ายอื่นๆ',
     };
     const catLabel = categoryLabels[data.category] || data.category;
     const title = isCreated
-      ? `💸 [บันทึกค่าใช้จ่ายใหม่จากเว็บ] ${data.title}`
-      : `🗑️ [ลบรายการค่าใช้จ่ายจากเว็บ] ${data.title}`;
-    const color = isCreated ? 0xF59E0B : 0xEF4444;
+      ? `[บันทึกค่าใช้จ่ายใหม่จากเว็บ] ${data.title}`
+      : `[ลบรายการค่าใช้จ่ายจากเว็บ] ${data.title}`;
+    const color = isCreated ? DISCORD_COLORS.WARNING : DISCORD_COLORS.DANGER;
 
     const fields: DiscordEmbedField[] = [
       { name: 'รายการค่าใช้จ่าย', value: `**${data.title}**`, inline: true },
       { name: 'หมวดหมู่', value: catLabel, inline: true },
-      { name: 'จำนวนเงิน', value: `**฿${Number(data.amount).toLocaleString('th-TH', { minimumFractionDigits: 2 })}**`, inline: true },
+      {
+        name: 'จำนวนเงิน',
+        value: `${Number(data.amount).toLocaleString('th-TH', {
+          minimumFractionDigits: 2,
+        })} บาท`,
+        inline: true,
+      },
     ];
     if (data.note) {
-      fields.push({ name: 'หมายเหตุ', value: `\`\`\`${data.note}\`\`\``, inline: false });
+      fields.push({
+        name: 'หมายเหตุ',
+        value: `\`\`\`${data.note}\`\`\``,
+        inline: false,
+      });
     }
     fields.push({
       name: 'แหล่งที่มา',
@@ -346,5 +745,56 @@ export class DiscordWebhookService {
         fields,
       }),
     ]);
+  }
+
+  /**
+   * สรุปรายงานประจำวัน (#orders หรือ #catalog)
+   */
+  async notifyDailySummary(data: {
+    dateStr: string;
+    totalRevenue: number;
+    orderCount: number;
+    topupTotal: number;
+    newUsersCount: number;
+    totalExpense: number;
+  }) {
+    const netProfit = data.totalRevenue - data.totalExpense;
+    await this.sendEmbed('orders', {
+      title: `[สรุปยอดประจำวัน] ${data.dateStr}`,
+      description: 'ภาพรวมรายรับ คำสั่งซื้อ และสมาชิกใหม่ประจำวัน',
+      color: DISCORD_COLORS.PURPLE,
+      fields: [
+        {
+          name: 'ยอดขายรวม',
+          value: `${data.totalRevenue.toLocaleString()} บาท`,
+          inline: true,
+        },
+        {
+          name: 'จำนวนคำสั่งซื้อ',
+          value: `${data.orderCount} รายการ`,
+          inline: true,
+        },
+        {
+          name: 'ยอดเติมเงินรวม',
+          value: `${data.topupTotal.toLocaleString()} บาท`,
+          inline: true,
+        },
+        {
+          name: 'ค่าใช้จ่ายร้าน',
+          value: `${data.totalExpense.toLocaleString()} บาท`,
+          inline: true,
+        },
+        {
+          name: 'กำไรสุทธิเบื้องต้น',
+          value: `${netProfit.toLocaleString()} บาท`,
+          inline: true,
+        },
+        {
+          name: 'สมาชิกสมัครใหม่',
+          value: `${data.newUsersCount} ท่าน`,
+          inline: true,
+        },
+      ],
+    });
   }
 }

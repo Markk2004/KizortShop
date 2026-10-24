@@ -397,6 +397,27 @@ export class AdminProductsController {
     const stock = availStock;
     const status = updated.isActive && stock > 0 ? "AVAILABLE" : "OUT_OF_STOCK";
 
+    // Write AuditLog for Product Update
+    await this.prisma.auditLog.create({
+      data: {
+        action: "PRODUCT_UPDATE",
+        targetType: "PRODUCT",
+        targetId: updated.id,
+        metadata: {
+          before: {
+            title: product.title,
+            price: Number(product.price),
+            isActive: product.isActive,
+          },
+          after: {
+            title: updated.title,
+            price: Number(updated.price),
+            isActive: updated.isActive,
+          },
+        },
+      },
+    }).catch(() => {});
+
     await this.discordWebhook.notifyCatalogAction({
       type: "PRODUCT",
       action: dto.status !== undefined && dto.title === undefined ? "STATUS_CHANGED" : "UPDATED",

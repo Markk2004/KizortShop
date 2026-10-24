@@ -231,6 +231,23 @@ export class AdminStocksController {
       });
     }
 
+    // Write AuditLog for stock addition with metadata (no plain credentials)
+    await this.prisma.auditLog.create({
+      data: {
+        action: "STOCK_IMPORT",
+        targetType: "STOCK",
+        targetId: product.id,
+        metadata: {
+          productCode: product.code,
+          productTitle: product.title,
+          count: preparedRecords.length,
+          batchCode: dto.batchCode,
+          supplierName: dto.supplierName,
+          serials: preparedRecords.map((r) => r.serialCode),
+        },
+      },
+    }).catch(() => {});
+
     // Notify Discord #web-stock-logs and #kaitun-id
     await this.discordWebhook.notifyStockImport({
       count: preparedRecords.length,
@@ -399,11 +416,39 @@ export class AdminStocksController {
       where: { id: item.id },
     });
 
+    // Write AuditLog
+    await this.prisma.auditLog.create({
+      data: {
+        action: "STOCK_DELETE",
+        targetType: "STOCK",
+        targetId: item.id,
+        metadata: {
+          serialCode: item.serialCode,
+          productId: item.productId,
+          username: item.username || item.maskedIdentity,
+        },
+      },
+    }).catch(() => {});
+
     await this.discordWebhook.notifyStockRemoved({
       serialCode: item.serialCode,
       username: item.username || item.maskedIdentity,
       productTitle: item.product?.title,
     });
+
+    // Check remaining available stock for low-stock notification
+    const remaining = await this.prisma.accountStock.count({
+      where: { productId: item.productId, status: "AVAILABLE" },
+    });
+    const threshold = parseInt(process.env.LOW_STOCK_THRESHOLD || "2", 10);
+    if (remaining <= threshold && item.product) {
+      await this.discordWebhook.notifyLowStock({
+        productTitle: item.product.title,
+        code: item.product.code,
+        remaining,
+        threshold,
+      }).catch(() => {});
+    }
 
     return {
       message: `Stock item ${item.serialCode} deleted successfully`,

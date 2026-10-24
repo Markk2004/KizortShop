@@ -5,8 +5,9 @@ services:
     rootDir: backend
     plan: free
     region: singapore
-    buildCommand: npm install && npm run build
+    buildCommand: npm install --include=dev && npm run build
     startCommand: npm run start:prod
+    healthCheckPath: /api/v1/health
     envVars:
       - key: NODE_ENV
         value: production
@@ -28,3 +29,25 @@ services:
         sync: false
       - key: FRONTEND_URL
         value: https://kizort-shop.vercel.app
+      - key: FRONTEND_HEALTH_URL
+        value: https://kizort-shop.vercel.app
+      - key: BOT_API_KEY
+        sync: false
+      - key: LOW_STOCK_THRESHOLD
+        value: "2"
+      - key: LARGE_TOPUP_AMOUNT
+        value: "2000"
+      - key: TICKET_STALE_HOURS
+        value: "6"
+      - key: DISCORD_NOTIFY_BOT_TOKEN
+        sync: false
+      - key: DISCORD_OPS_BOT_TOKEN
+        sync: false
+      - key: DISCORD_OPS_PUBLIC_KEY
+        sync: false
+      - key: DISCORD_OPS_APP_ID
+        sync: false
+      - key: DISCORD_GUILD_ID
+        sync: false
+      - key: DISCORD_ADMIN_ROLE_ID
+        sync: false

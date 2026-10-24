@@ -280,3 +280,33 @@ model Expense {
   @@index([category, paidAt])
 }
 
+model DiscordOutbox {
+  id          String   @id @default(uuid())
+  channelKey  String   // kaitun_sync, orders, topups, stocks, catalog, members, tickets_audit, system_alerts
+  botType     String   @default("notify") // notify, ops
+  payload     Json
+  status      String   @default("PENDING") // PENDING, PROCESSING, SENT, FAILED, SKIPPED
+  attempts    Int      @default(0)
+  maxAttempts Int      @default(5)
+  lastError   String?
+  nextRetryAt DateTime @default(now())
+  createdAt   DateTime @default(now())
+  updatedAt   DateTime @updatedAt
+
+  @@index([status, nextRetryAt])
+  @@index([channelKey, createdAt])
+}
+
+model AlertState {
+  key        String    @id // e.g. low_stock_BFV4, system_watchdog_incident, mute:system_watchdog_incident
+  lastSentAt DateTime  @default(now())
+  mutedUntil DateTime?
+  metadata   Json?
+  createdAt  DateTime  @default(now())
+  updatedAt  DateTime  @updatedAt
+
+  @@index([mutedUntil])
+}
+
+
+
