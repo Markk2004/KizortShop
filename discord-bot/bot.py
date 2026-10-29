@@ -892,6 +892,34 @@ class ExpenseInteractiveView(discord.ui.View):
             except Exception:
                 pass
 
+    @discord.ui.button(
+        label="ลบรายการล่าสุด",
+        style=discord.ButtonStyle.danger,
+        emoji="🗑️",
+        custom_id="expense:delete_latest_button",
+    )
+    async def delete_latest_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        await interaction.response.defer(ephemeral=True)
+        if not is_staff_or_admin(interaction.user):
+            await interaction.followup.send("❌ เฉพาะแอดมินหรือทีมงานเท่านั้นที่สามารถลบรายการค่าใช้จ่ายได้", ephemeral=True)
+            return
+        deleted = self.db.delete_expense("latest")
+        if deleted:
+            title_str = deleted.get("title", "รายการล่าสุด")
+            amt = float(deleted.get("amount") or 0.0)
+            embed = discord.Embed(
+                title="🗑️ ลบรายการค่าใช้จ่ายล่าสุดสำเร็จ",
+                description="นำรายการค่าใช้จ่ายออกจากระบบบัญชี และคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
+                color=discord.Color.red(),
+            )
+            embed.add_field(name="รายการ", value=f"**{title_str}**", inline=True)
+            if amt > 0:
+                embed.add_field(name="จำนวนเงิน", value=f"**฿{amt:,.2f}**", inline=True)
+            embed.set_footer(text=f"ลบโดย {interaction.user.name} • ซิงค์กับระบบบัญชีทันที")
+            await interaction.followup.send(embed=embed, ephemeral=True)
+        else:
+            await interaction.followup.send("❌ ไม่พบรายการค่าใช้จ่ายที่ต้องการลบในระบบ", ephemeral=True)
+
 
 def build_ticket_panel_embed() -> discord.Embed:
     embed = discord.Embed(
@@ -2543,10 +2571,11 @@ class KeyValidationBot(discord.Client):
                 except Exception:
                     pass
             embed = build_accounting_embed(self.db)
+            view = ExpenseInteractiveView(self.db)
             if interaction.response.is_done():
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, view=view)
             else:
-                await interaction.response.send_message(embed=embed)
+                await interaction.response.send_message(embed=embed, view=view)
 
         # Command: /expense (Interactive Modal Form with Dropdown)
         @self.tree.command(
@@ -2767,10 +2796,11 @@ class KeyValidationBot(discord.Client):
                     await interaction.response.send_message(msg)
                 return
 
+            view = ExpenseInteractiveView(self.db)
             if interaction.response.is_done():
-                await interaction.followup.send(embed=embed)
+                await interaction.followup.send(embed=embed, view=view)
             else:
-                await interaction.response.send_message(embed=embed)
+                await interaction.response.send_message(embed=embed, view=view)
 
         @self.tree.command(
             name="expense_list",
@@ -3177,7 +3207,7 @@ class KeyValidationBot(discord.Client):
             sale_target = None
             sale_price = None
 
-            for pfx in ["ขายแล้ว ", "ขายเเล้ว ", "ขายละ ", "ขายล่ะ ", "ขาย ", "ได้ ", "รายได้ "]:
+            for pfx in ["ขายไอเทม ", "ขายแล้ว ", "ขายเเล้ว ", "ขายละ ", "ขายล่ะ ", "ขาย ", "ได้ ", "รายได้ "]:
                 if lower_msg.startswith(pfx) and not lower_msg.startswith("/"):
                     is_sale_trigger = True
                     rem = raw_msg[len(pfx):].strip()
