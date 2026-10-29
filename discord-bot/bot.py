@@ -632,6 +632,29 @@ def build_accounting_embed(db: Database) -> discord.Embed:
     )
     embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
     embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
+
+    # Show itemized recent income & expenses directly in /accounting
+    try:
+        sold_items = db.list_kaitun_accounts(sale_status="sold", limit=10)
+        if sold_items:
+            inc_lines = []
+            for s in sold_items[:8]:
+                p_txt = s.get("price") or "0"
+                p_disp = f"฿{p_txt}" if not str(p_txt).startswith("฿") and "บาท" not in str(p_txt) else str(p_txt)
+                inc_lines.append(f"• `{s['username']}` — **{p_disp}**")
+            if len(sold_items) > 8:
+                inc_lines.append(f"*(และอีก {len(sold_items) - 8} รายการ)*")
+            embed.add_field(name="🟢 รายการขายล่าสุด (รายรับ)", value="\n".join(inc_lines), inline=False)
+
+        exp_items = db.list_expenses(limit=10)
+        if exp_items:
+            exp_lines = []
+            for e in exp_items[:6]:
+                exp_lines.append(f"• `{e.get('title', '-')}` — **฿{float(e.get('amount') or 0):,.2f}** ({e.get('paidAt', '')[:10]})")
+            embed.add_field(name="🔴 รายการค่าใช้จ่ายล่าสุด (รายจ่าย)", value="\n".join(exp_lines), inline=False)
+    except Exception:
+        pass
+
     embed.set_footer(text="ระบบบัญชีอัตโนมัติ Real-Time Sync • /accounting • /admin/expense")
     return embed
 
