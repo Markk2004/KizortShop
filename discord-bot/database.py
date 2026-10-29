@@ -344,40 +344,7 @@ class Database:
         if self._is_test_env:
             return self._local_add_account(username, password, cookie, raw_line, user_id)
 
-        # 1. Prefer Backend API with BOT_API_KEY if configured
-        if BACKEND_API_URL and BOT_API_KEY:
-            try:
-                resp = requests.post(
-                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/upsert",
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-bot-api-key": BOT_API_KEY,
-                    },
-                    json={
-                        "username": username,
-                        "password": password,
-                        "cookie": cookie,
-                        "discordUserId": str(user_id),
-                    },
-                    timeout=5,
-                )
-                if resp.status_code == 201 or resp.status_code == 200:
-                    data = resp.json()
-                    status = data.get("status", "created")
-                    if status == "created":
-                        return "created", {"username": username, "serialCode": data.get("serialCode")}
-                    else:
-                        return "password_updated", {"username": username, "serialCode": data.get("serialCode")}
-                else:
-                    logger.warning(
-                        "Backend API sync returned HTTP %s: %s, falling back to direct Supabase REST",
-                        resp.status_code,
-                        resp.text,
-                    )
-            except Exception as e:
-                logger.error("Failed to sync account via Backend API: %s, falling back to direct Supabase REST", e)
-
-        # 2. Direct Supabase REST Fallback
+        # Direct Supabase REST (Primary Source of Truth)
         existing = self.get_kaitun_account(username)
         if existing:
             if existing.get("password") == password:
@@ -406,6 +373,20 @@ class Database:
                         timeout=5
                     )
                     logger.info("Password updated on Supabase for account '%s'", username)
+                    try:
+                        embed_pw = {
+                            "title": f"🔑 [อัปเดตรหัสผ่านไอดี] {username}",
+                            "description": "ตรวจพบรหัสผ่านใหม่สำหรับไอดีเดิมในคลัง ระบบทำการอัปเดตรหัสผ่านเรียบร้อยแล้ว",
+                            "color": 0xF59E0B,
+                            "fields": [
+                                {"name": "👤 บัญชี (Username)", "value": f"`{username}`", "inline": True},
+                                {"name": "🏷️ สถานะ", "value": "🔑 **อัปเดตรหัสผ่านแล้ว**", "inline": True},
+                            ],
+                            "footer": {"text": f"อัปเดตโดย Discord ID: {user_id} • ซิงค์ทุกระบบพร้อมกัน"},
+                        }
+                        self.broadcast_webhooks(["stocks", "kaitun_sync"], embed_pw)
+                    except Exception as e:
+                        logger.warning("Failed to broadcast password update webhook: %s", e)
                     return "password_updated", existing
                 except Exception as e:
                     logger.error("Failed to update password on Supabase: %s", e)
@@ -449,6 +430,21 @@ class Database:
             )
             if resp.status_code in (200, 201):
                 logger.info("Successfully created kaitun account on Supabase: '%s'", username)
+                try:
+                    embed_created = {
+                        "title": f"📦 [เพิ่มสต็อกไอดีใหม่] {username}",
+                        "description": "นำเข้าบัญชีใหม่เข้าสู่คลังสต็อกพร้อมขายเรียบร้อยแล้ว",
+                        "color": 0x10B981,
+                        "fields": [
+                            {"name": "👤 บัญชี (Username)", "value": f"`{username}`", "inline": True},
+                            {"name": "🔖 Serial Code", "value": f"`{serial}`", "inline": True},
+                            {"name": "🏷️ สถานะ", "value": "🟢 **พร้อมขาย (Available)**", "inline": True},
+                        ],
+                        "footer": {"text": f"เพิ่มโดย Discord ID: {user_id} • ซิงค์คลังสต็อกและเว็บไซต์ทันที"},
+                    }
+                    self.broadcast_webhooks(["stocks"], embed_created)
+                except Exception as e:
+                    logger.warning("Failed to broadcast stock created webhook: %s", e)
                 return "created", None
             elif resp.status_code == 409 and ("credentialHash" in resp.text or "duplicate" in resp.text.lower()):
                 logger.warning("Supabase duplicate hash for account '%s': %s", username, resp.text)
@@ -611,7 +607,7 @@ class Database:
                 data = resp.json()
                 created = data[0] if isinstance(data, list) and len(data) > 0 else payload
 
-                # Auto-broadcast to #web-orders
+                # Auto-broadcast to #web-orders, #web-stock-logs, #kaitun-id
                 try:
                     cat_labels = {
                         "SCRIPT": "ค่าสคริปต์ฟาร์ม 📜",
@@ -630,11 +626,12 @@ class Database:
                             {"name": "หมวดหมู่", "value": cat_str, "inline": True},
                             {"name": "จำนวนเงิน", "value": f"**฿{payload['amount']:,.2f}**", "inline": True},
                         ],
+                        "footer": {"text": "ซิงค์ระบบบัญชีและแจ้งเตือนทุกระบบพร้อมกัน"},
                     }
                     if payload.get("note"):
                         embed_notif["fields"].append({"name": "หมายเหตุ", "value": f"```{payload['note']}```", "inline": False})
 
-                    self.send_webhook("orders", embed_notif)
+                    self.broadcast_webhooks(["orders", "stocks", "kaitun_sync"], embed_notif)
                 except Exception as e:
                     logger.warning("Failed to broadcast expense webhook: %s", e)
 
@@ -664,7 +661,22 @@ class Database:
                 headers=self._supabase_headers,
                 timeout=5
             )
-            return resp.status_code in (200, 204)
+            ok = resp.status_code in (200, 204)
+            if ok:
+                try:
+                    embed_del = {
+                        "title": f"🗑️ [ลบรายการค่าใช้จ่าย] รหัส {expense_id[:8]}",
+                        "description": "ลบรายการค่าใช้จ่ายออกจากระบบบัญชีและคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
+                        "color": 0xEF4444,
+                        "fields": [
+                            {"name": "รหัสรายการ", "value": f"`{expense_id}`", "inline": True},
+                        ],
+                        "footer": {"text": "ซิงค์ระบบบัญชีและแจ้งเตือนทุกระบบพร้อมกัน"},
+                    }
+                    self.broadcast_webhooks(["orders", "stocks", "kaitun_sync"], embed_del)
+                except Exception as e:
+                    logger.warning("Failed to broadcast delete expense webhook: %s", e)
+            return ok
         except Exception as e:
             logger.error("Error deleting expense: %s", e)
             return False
@@ -705,6 +717,14 @@ class Database:
         except Exception as e:
             logger.error("Error sending webhook to %s: %s", channel_key, e)
             return False
+
+    def broadcast_webhooks(self, channel_keys: List[str], embed: Dict[str, Any]) -> None:
+        """ส่ง Webhook แจ้งเตือนพร้อมกันไปยังหลายช่องทางตามที่กำหนด"""
+        for key in channel_keys:
+            try:
+                self.send_webhook(key, embed)
+            except Exception as e:
+                logger.warning("Failed to broadcast webhook to %s: %s", key, e)
 
     def add_item_sale(
         self,
@@ -768,7 +788,7 @@ class Database:
             if resp.status_code in (200, 201):
                 logger.info("Successfully recorded item sale: '%s' for ฿%s", title, amount)
 
-                # Auto-broadcast to #web-orders
+                # Auto-broadcast to #web-orders, #web-stock-logs, #kaitun-id
                 try:
                     embed_notif = {
                         "title": f"🎉 [ขายไอเทม/บริการสำเร็จ] {title.strip()}",
@@ -778,6 +798,7 @@ class Database:
                             {"name": "📦 รายการสินค้า/ไอเทม", "value": f"**{title.strip()}**", "inline": True},
                             {"name": "💰 ราคาขาย (รายได้)", "value": f"**฿{float(amount):,.2f}**", "inline": True},
                         ],
+                        "footer": {"text": "ซิงค์ระบบบัญชี คลังสต็อก และแจ้งเตือนทุกระบบพร้อมกัน"},
                     }
                     if cost > 0:
                         embed_notif["fields"].append({"name": "📦 ต้นทุน", "value": f"฿{float(cost):,.2f}", "inline": True})
@@ -785,7 +806,7 @@ class Database:
                     if note:
                         embed_notif["fields"].append({"name": "📝 หมายเหตุ", "value": f"```{note.strip()}```", "inline": False})
 
-                    self.send_webhook("orders", embed_notif)
+                    self.broadcast_webhooks(["orders", "stocks", "kaitun_sync"], embed_notif)
                 except Exception as e:
                     logger.warning("Failed to broadcast item sale webhook: %s", e)
 
@@ -820,6 +841,25 @@ class Database:
                 dispensed.append(acc)
             except Exception as e:
                 logger.error("Failed to dispense account %s: %s", acc["username"], e)
+
+        if dispensed:
+            try:
+                usernames_str = ", ".join(f"`{a['username']}`" for a in dispensed)
+                embed_disp = {
+                    "title": f"🎁 [เบิกจ่ายไอดีออกจากสต็อก] จำนวน {len(dispensed)} บัญชี",
+                    "description": "ระบบทำการตัดสต็อกไอดีและปรับสถานะเป็นขายแล้ว (SOLD) เรียบร้อยแล้ว",
+                    "color": 0xF59E0B,
+                    "fields": [
+                        {"name": "📦 จำนวนที่เบิก", "value": f"**{len(dispensed)} บัญชี**", "inline": True},
+                        {"name": "🏷️ สถานะ", "value": "🔴 **ตัดสต็อกแล้ว (SOLD)**", "inline": True},
+                        {"name": "👤 รายชื่อบัญชี", "value": usernames_str[:900], "inline": False},
+                    ],
+                    "footer": {"text": f"เบิกโดย Discord ID: {user_id} • ซิงค์ทุกระบบพร้อมกัน"},
+                }
+                self.broadcast_webhooks(["orders", "stocks", "kaitun_sync"], embed_disp)
+            except Exception as e:
+                logger.warning("Failed to broadcast dispense webhook: %s", e)
+
         return dispensed
 
     def list_available_kaitun(self, limit: int = 20) -> List[Dict[str, Any]]:
@@ -940,7 +980,7 @@ class Database:
                     except Exception as e:
                         logger.warning("Failed to broadcast order webhook: %s", e)
 
-                    # 2. Broadcast sold audit to #web-stock-logs
+                    # 2. Broadcast sold audit to #web-stock-logs and #kaitun-id
                     try:
                         embed_stock = {
                             "title": f"📦 [อัปเดตสต็อกไอดี: ขายแล้ว] {username}",
@@ -951,19 +991,19 @@ class Database:
                                 {"name": "🏷️ สถานะการขาย", "value": "🔴 **ขายแล้ว (Sold)**", "inline": True},
                                 {"name": "💰 ราคา", "value": f"`{price_display}`", "inline": True},
                             ],
-                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ Supabase เรียบร้อย"},
+                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ทุกระบบพร้อมกัน"},
                         }
                         if final_maps:
                             embed_stock["fields"].append({"name": "🗺️ แมพ", "value": f"`{final_maps}`", "inline": True})
                         if final_details:
                             embed_stock["fields"].append({"name": "📝 รายละเอียด", "value": f"```{final_details[:300]}```", "inline": False})
 
-                        self.send_webhook("stocks", embed_stock)
+                        self.broadcast_webhooks(["stocks", "kaitun_sync"], embed_stock)
                     except Exception as e:
                         logger.warning("Failed to broadcast stock sold webhook: %s", e)
 
                 else:
-                    # Broadcast normal stock update audit to #web-stock-logs
+                    # Broadcast normal stock update audit to #web-stock-logs and #kaitun-id
                     try:
                         embed_stock = {
                             "title": f"📦 [อัปเดตข้อมูลไอดี] {username}",
@@ -973,7 +1013,7 @@ class Database:
                                 {"name": "👤 บัญชี", "value": f"`{username}`", "inline": True},
                                 {"name": "🏷️ สถานะการขาย", "value": "🟢 **พร้อมขาย (Available)**", "inline": True},
                             ],
-                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ Supabase เรียบร้อย"},
+                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ทุกระบบพร้อมกัน"},
                         }
                         if price_display and price_display != "ไม่ระบุ":
                             embed_stock["fields"].append({"name": "💰 ราคา", "value": f"`{price_display}`", "inline": True})
@@ -982,7 +1022,7 @@ class Database:
                         if final_details:
                             embed_stock["fields"].append({"name": "📝 รายละเอียด", "value": f"```{final_details[:300]}```", "inline": False})
 
-                        self.send_webhook("stocks", embed_stock)
+                        self.broadcast_webhooks(["stocks", "kaitun_sync"], embed_stock)
                     except Exception as e:
                         logger.warning("Failed to broadcast stock update webhook: %s", e)
 
@@ -1024,29 +1064,6 @@ class Database:
                 conn.commit()
                 return cur.rowcount > 0
 
-        # 1. Prefer Backend API if configured
-        if BACKEND_API_URL and BOT_API_KEY:
-            try:
-                resp = requests.post(
-                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/remove",
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-bot-api-key": BOT_API_KEY,
-                    },
-                    json={"username": username, "actor": "Discord Python Bot"},
-                    timeout=5,
-                )
-                if resp.status_code in (200, 201):
-                    return True
-                else:
-                    logger.warning(
-                        "Backend API remove returned HTTP %s: %s, falling back to direct Supabase REST",
-                        resp.status_code,
-                        resp.text,
-                    )
-            except Exception as e:
-                logger.error("Failed to remove account via Backend API: %s, falling back to direct Supabase REST", e)
-
         acc = self.get_kaitun_account(username)
         if not acc:
             return False
@@ -1057,7 +1074,23 @@ class Database:
                 headers=self._supabase_headers,
                 timeout=5
             )
-            return resp.status_code in (200, 204)
+            ok = resp.status_code in (200, 204)
+            if ok:
+                try:
+                    embed_del = {
+                        "title": f"🗑️ [นำไอดีออกจากคลังสต็อก] {username}",
+                        "description": "ลบบัญชีออกจากฐานข้อมูลคลังสต็อกเรียบร้อยแล้ว",
+                        "color": 0xEF4444,
+                        "fields": [
+                            {"name": "👤 บัญชี (Username)", "value": f"`{username}`", "inline": True},
+                            {"name": "🔖 รหัสอ้างอิง", "value": f"`{acc.get('serialCode') or acc.get('id', '-')}`", "inline": True},
+                        ],
+                        "footer": {"text": "ซิงค์คลังสต็อกและแจ้งเตือนทุกระบบพร้อมกัน"},
+                    }
+                    self.broadcast_webhooks(["stocks", "kaitun_sync"], embed_del)
+                except Exception as e:
+                    logger.warning("Failed to broadcast delete stock webhook: %s", e)
+            return ok
         except Exception as e:
             logger.error("Error deleting account from Supabase: %s", e)
             return False

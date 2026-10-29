@@ -3171,14 +3171,18 @@ class KeyValidationBot(discord.Client):
                                     p_cand = p_cand.replace(kw, "").replace("\u0e40\u0e40", "\u0e41").strip()
                                 if p_cand:
                                     password = p_cand
-                        with self.kaitun_service.database.connection:
-                            self.kaitun_service.database.connection.execute(
-                                """
-                                INSERT INTO kaitun_accounts (username, password, raw_line, status, sale_status, added_by, added_at)
-                                VALUES (?, ?, ?, 'used', 'sold', ?, datetime('now'))
-                                """,
-                                (target_u, password, f"{target_u} | {password}", message.author.id),
-                            )
+                        self.kaitun_service.database.add_kaitun_account_smart(
+                            username=target_u,
+                            password=password,
+                            cookie=None,
+                            raw_line=f"{target_u}|{password}",
+                            user_id=message.author.id,
+                        )
+                        self.kaitun_service.update_account(
+                            username=target_u,
+                            sale_status="sold",
+                            actor=message.author.name,
+                        )
 
                     stats = self.kaitun_service.get_stock_summary()
                     embed = discord.Embed(

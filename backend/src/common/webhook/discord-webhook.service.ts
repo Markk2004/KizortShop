@@ -209,7 +209,7 @@ export class DiscordWebhookService implements OnModuleInit {
   }
 
   /**
-   * แจ้งเตือนอัปเดตไอดีไก่ตันกลับไปยังห้อง #kaitun-id (2-way sync notification)
+   * แจ้งเตือนอัปเดตไอดีไก่ตันกลับไปยังห้อง #kaitun-id, #web-stock-logs และ #web-orders พร้อมกัน
    */
   async notifyKaitunSync(
     action: 'SOLD' | 'AVAILABLE' | 'PASSWORD_UPDATED' | 'DETAILS_UPDATED',
@@ -229,12 +229,12 @@ export class DiscordWebhookService implements OnModuleInit {
       : DISCORD_COLORS.SUCCESS;
 
     const title = isSold
-      ? `[เว็บขายแล้ว] บัญชี ${data.username} ถูกขายแล้ว`
+      ? `[ขายไอดีสำเร็จ] บัญชี ${data.username} ถูกขายแล้ว`
       : action === 'PASSWORD_UPDATED'
-      ? `[เว็บเปลี่ยนรหัสผ่าน] บัญชี ${data.username} มีการเปลี่ยนรหัสผ่าน`
-      : `[เว็บอัปเดตไอดี] ข้อมูลบัญชี ${data.username} ถูกปรับปรุง`;
+      ? `[เปลี่ยนรหัสผ่าน] บัญชี ${data.username} มีการเปลี่ยนรหัสผ่าน`
+      : `[อัปเดตไอดี] ข้อมูลบัญชี ${data.username} ถูกปรับปรุง`;
 
-    await this.sendEmbed('kaitun_sync', {
+    const embedPayload = {
       title,
       description: `สถานะไอดี: ${
         isSold ? 'ขายแล้ว (SOLD)' : 'พร้อมขาย (AVAILABLE)'
@@ -248,7 +248,7 @@ export class DiscordWebhookService implements OnModuleInit {
         },
         {
           name: 'สถานะการขาย',
-          value: isSold ? 'ขายแล้ว' : 'ยังไม่ขาย',
+          value: isSold ? '🔴 ขายแล้ว (Sold)' : '🟢 ยังไม่ขาย (Available)',
           inline: true,
         },
         {
@@ -267,11 +267,29 @@ export class DiscordWebhookService implements OnModuleInit {
           inline: false,
         },
       ],
-    });
+    };
+
+    const tasks = [
+      this.sendEmbed('kaitun_sync', embedPayload),
+      this.sendEmbed('stocks', embedPayload),
+    ];
+    if (isSold) {
+      tasks.push(
+        this.sendEmbed('orders', {
+          ...embedPayload,
+          color: DISCORD_COLORS.SUCCESS,
+          description: `บันทึกการขายไอดีไก่ตันเข้าระบบบัญชีร้านเรียบร้อยแล้ว\nดำเนินการโดย: ${
+            data.actor || 'ระบบเว็บไซต์ KaiZort Store'
+          }`,
+        }),
+      );
+    }
+
+    await Promise.allSettled(tasks);
   }
 
   /**
-   * แจ้งเตือนออเดอร์ใหม่ (#web-orders)
+   * แจ้งเตือนออเดอร์ใหม่ (#web-orders, #web-stock-logs และ #kaitun-id)
    */
   async notifyOrderCreated(data: {
     orderNumber: string;
@@ -281,7 +299,7 @@ export class DiscordWebhookService implements OnModuleInit {
     stockSerial?: string;
     remainingStockCount?: number;
   }) {
-    await this.sendEmbed('orders', {
+    const embedPayload = {
       title: `[คำสั่งซื้อใหม่] เลขที่ ${data.orderNumber}`,
       description: `ลูกค้าสั่งซื้อและรับสินค้าสำเร็จทันที`,
       color: DISCORD_COLORS.SUCCESS,
@@ -312,7 +330,13 @@ export class DiscordWebhookService implements OnModuleInit {
           inline: true,
         },
       ],
-    });
+    };
+
+    await Promise.allSettled([
+      this.sendEmbed('orders', embedPayload),
+      this.sendEmbed('stocks', embedPayload),
+      this.sendEmbed('kaitun_sync', embedPayload),
+    ]);
   }
 
   /**
@@ -740,6 +764,14 @@ export class DiscordWebhookService implements OnModuleInit {
         title,
         description: isCreated
           ? 'บันทึกค่าใช้จ่ายร้านสำเร็จ (Expense Ledger Log)'
+          : 'ลบรายการค่าใช้จ่ายออกจากระบบบัญชี',
+        color,
+        fields,
+      }),
+      this.sendEmbed('stocks', {
+        title,
+        description: isCreated
+          ? 'บันทึกค่าใช้จ่ายร้านสำเร็จ (Expense Audit Log)'
           : 'ลบรายการค่าใช้จ่ายออกจากระบบบัญชี',
         color,
         fields,
