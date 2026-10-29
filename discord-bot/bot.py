@@ -426,11 +426,11 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
         default_status = "ขายแล้ว" if (prefill_account and prefill_account.get("sale_status") == "sold") else "ยังไม่ขาย"
 
         self.username_input = discord.ui.TextInput(
-            label="ชื่อไอดี (Username)",
-            placeholder="เช่น kaimhaShozp_baa",
-            default=default_user,
+            label="ชื่อไอดี (Username หรือ user|pass)",
+            placeholder="เช่น SSakamotoz_KsDb หรือ user | pass",
+            default=default_user[:80],
             required=True,
-            max_length=50,
+            max_length=80,
         )
         self.maps_input = discord.ui.TextInput(
             label="แมพที่ฟาร์ม (Farmed Maps)",
@@ -472,20 +472,36 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
         # 1. Immediate deferral to prevent Discord 3-second timeout (Error 10062)
         await interaction.response.defer(ephemeral=False)
 
-        u = self.username_input.value.strip()
+        raw_u = self.username_input.value.strip()
+        if "|" in raw_u:
+            parts = [p.strip() for p in raw_u.split("|")]
+        elif ":" in raw_u:
+            parts = [p.strip() for p in raw_u.split(":")]
+        else:
+            parts = [raw_u]
+
+        u = parts[0]
+        inline_pass = parts[1] if len(parts) >= 2 and parts[1] else None
+
         acc = self.kaitun_service.get_account(u)
         if not acc:
-            await interaction.followup.send(
-                f"❌ ไม่พบไอดี `{u}` ในระบบ กรุณาตรวจสอบชื่อ Username อีกครั้ง",
-                ephemeral=True,
+            # Auto-register into stock so /stock_update never fails even if ID was not pasted into #kaitun-id yet
+            self.kaitun_service.database.add_kaitun_account_smart(
+                username=u,
+                password=inline_pass or "Unknown",
+                cookie=None,
+                raw_line=raw_u,
+                user_id=interaction.user.id,
             )
-            return
+            acc = self.kaitun_service.get_account(u) or {"username": u}
 
+        target_u = acc.get("username") or u
         status_val = self.status_input.value.strip().lower()
         sale_status = "sold" if any(w in status_val for w in ["ขายแล้ว", "sold", "yes"]) else "unsold"
 
         self.kaitun_service.update_account(
-            username=u,
+            username=target_u,
+            password=inline_pass,
             farmed_maps=self.maps_input.value.strip(),
             details=self.details_input.value.strip(),
             sale_status=sale_status,
@@ -493,9 +509,9 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
             actor=interaction.user.name,
         )
 
-        acc_updated = self.kaitun_service.get_account(u) or acc
+        acc_updated = self.kaitun_service.get_account(target_u) or acc
         embed = discord.Embed(
-            title=f"✅ อัปเดตข้อมูลไอดีเรียบร้อย: {u}",
+            title=f"✅ อัปเดตข้อมูลไอดีเรียบร้อย: {target_u}",
             color=discord.Color.green(),
         )
         embed.add_field(
@@ -515,8 +531,62 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
             value=f"```{acc_updated.get('details') or 'ยังไม่ได้ระบุ'}```",
             inline=False,
         )
-        embed.set_footer(text=f"อัปเดตผ่านฟอร์มโดย {interaction.user.name} • {datetime.now().strftime('%H:%M:%S')}")
+        embed.set_footer(text=f"อัปเดตผ่านฟอร์มโดย {interaction.user.name} • ซิงค์แจ้งเตือนครบทุกระบบแล้ว")
         await interaction.followup.send(embed=embed)
+
+
+class StockUpdateAccountSelect(discord.ui.Select):
+    def __init__(self, kaitun_service: KaitunService, accounts: list):
+        self.kaitun_service = kaitun_service
+        self.account_map = {acc["username"]: acc for acc in accounts[:25] if acc.get("username")}
+        options = []
+        for acc in accounts[:25]:
+            uname = acc.get("username")
+            if not uname:
+                continue
+            is_sold = acc.get("sale_status") == "sold" or acc.get("status") == "used"
+            emoji = "🔴" if is_sold else "🟢"
+            status_txt = "ขายแล้ว" if is_sold else "พร้อมขาย"
+            price_txt = f" • ฿{acc['price']}" if acc.get("price") else ""
+            maps_txt = f" • {acc['farmed_maps']}" if acc.get("farmed_maps") else ""
+            desc = f"[{status_txt}]{price_txt}{maps_txt}"
+            options.append(
+                discord.SelectOption(
+                    label=uname[:100],
+                    value=uname[:100],
+                    emoji=emoji,
+                    description=desc[:100],
+                )
+            )
+        super().__init__(
+            placeholder="👇 เลือกไอดีในสต็อกที่ต้องการอัปเดตข้อมูล...",
+            min_values=1,
+            max_values=1,
+            options=options,
+        )
+
+    async def callback(self, interaction: discord.Interaction):
+        selected_u = self.values[0]
+        prefill = self.account_map.get(selected_u) or self.kaitun_service.get_account(selected_u) or {"username": selected_u}
+        modal = StockUpdateModal(self.kaitun_service, prefill_account=prefill)
+        await interaction.response.send_modal(modal)
+
+
+class StockUpdateSelectView(discord.ui.View):
+    def __init__(self, kaitun_service: KaitunService, accounts: list):
+        super().__init__(timeout=300)
+        self.kaitun_service = kaitun_service
+        if accounts:
+            self.add_item(StockUpdateAccountSelect(kaitun_service, accounts))
+
+    @discord.ui.button(
+        label="พิมพ์ชื่อไอดีด้วยตัวเอง (กรอกฟอร์มใหม่)",
+        style=discord.ButtonStyle.secondary,
+        emoji="📝",
+    )
+    async def manual_form_button(self, interaction: discord.Interaction, button: discord.ui.Button):
+        modal = StockUpdateModal(self.kaitun_service, prefill_account=None)
+        await interaction.response.send_modal(modal)
 
 
 EXPENSE_CAT_MAP = {
@@ -1949,16 +2019,46 @@ class KeyValidationBot(discord.Client):
             embed.set_footer(text=f"เบิกโดย {interaction.user.name} • ปลอดภัย ข้อมูลไม่ถูกจ่ายซ้ำ")
             await interaction.followup.send(embed=embed, ephemeral=ephemeral)
 
+        async def _autocomplete_stock_username(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> list[app_commands.Choice[str]]:
+            try:
+                accounts = self.kaitun_service.list_accounts(limit=25)
+                # Sort available first, then sold
+                accounts.sort(key=lambda a: 0 if a.get("sale_status") != "sold" else 1)
+                q = (current or "").strip().lower()
+                choices = []
+                for acc in accounts:
+                    uname = acc.get("username") or ""
+                    if not uname:
+                        continue
+                    maps = acc.get("farmed_maps") or ""
+                    if q and q not in uname.lower() and q not in maps.lower():
+                        continue
+                    is_sold = acc.get("sale_status") == "sold" or acc.get("status") == "used"
+                    icon = "🔴 [ขายแล้ว]" if is_sold else "🟢 [พร้อมขาย]"
+                    price_str = f" (฿{acc['price']})" if acc.get("price") else ""
+                    label = f"{icon} {uname}{price_str}"
+                    choices.append(app_commands.Choice(name=label[:100], value=uname[:100]))
+                    if len(choices) >= 25:
+                        break
+                return choices
+            except Exception as e:
+                logger.warning("Autocomplete stock username failed: %s", e)
+                return []
+
         # Command: /stock_password (เปลี่ยนรหัสผ่านของไอดีในสต็อก)
         @self.tree.command(
             name="stock_password",
             description="เปลี่ยนรหัสผ่านของไอดีในคลังสต็อก",
         )
         @app_commands.describe(
-            username="ชื่อไอดีที่ต้องการเปลี่ยนรหัสผ่าน",
+            username="ชื่อไอดีที่ต้องการเปลี่ยนรหัสผ่าน (พิมพ์หรือเลือกจากรายการ)",
             new_password="รหัสผ่านใหม่",
             ephemeral="ซ่อนข้อความเพื่อความปลอดภัยหรือไม่ (แนะนำ: True)",
         )
+        @app_commands.autocomplete(username=_autocomplete_stock_username)
         async def stock_password_cmd(
             interaction: discord.Interaction,
             username: str,
@@ -1974,24 +2074,25 @@ class KeyValidationBot(discord.Client):
                 )
                 return
 
+            target_u = acc.get("username") or username.strip()
             ok = self.kaitun_service.update_account(
-                username=username.strip(),
+                username=target_u,
                 password=new_password.strip(),
                 actor=interaction.user.name,
             )
             if ok:
                 embed = discord.Embed(
                     title="🔑 เปลี่ยนรหัสผ่านเรียบร้อย",
-                    description=f"ระบบอัปเดตรหัสผ่านของไอดี **{username.strip()}** เรียบร้อยแล้ว",
+                    description=f"ระบบอัปเดตรหัสผ่านของไอดี **{target_u}** เรียบร้อยแล้ว",
                     color=discord.Color.blue(),
                 )
-                embed.add_field(name="👤 บัญชี", value=f"`{username.strip()}`", inline=True)
+                embed.add_field(name="👤 บัญชี", value=f"`{target_u}`", inline=True)
                 embed.add_field(name="🔑 รหัสผ่านใหม่", value=f"||`{new_password.strip()}`||", inline=True)
                 embed.set_footer(text=f"เปลี่ยนรหัสผ่านโดย {interaction.user.name}")
                 await interaction.followup.send(embed=embed, ephemeral=ephemeral)
             else:
                 await interaction.followup.send(
-                    f"❌ ไม่สามารถเปลี่ยนรหัสผ่านของไอดี `{username}` ได้",
+                    f"❌ ไม่สามารถเปลี่ยนรหัสผ่านของไอดี `{target_u}` ได้",
                     ephemeral=ephemeral,
                 )
 
@@ -2001,8 +2102,9 @@ class KeyValidationBot(discord.Client):
             description="นำไอดีออกจากคลังสต็อก (ลบออกจากระบบ Supabase)",
         )
         @app_commands.describe(
-            username="ชื่อไอดี Roblox ที่ต้องการนำออก",
+            username="ชื่อไอดี Roblox ที่ต้องการนำออก (พิมพ์หรือเลือกจากรายการ)",
         )
+        @app_commands.autocomplete(username=_autocomplete_stock_username)
         async def stock_remove_cmd(
             interaction: discord.Interaction,
             username: str,
@@ -2017,7 +2119,7 @@ class KeyValidationBot(discord.Client):
                 )
                 return
 
-            ok = self.kaitun_service.delete_account(target_u)
+            ok = self.kaitun_service.delete_account(acc.get("username") or target_u)
             if ok:
                 embed = discord.Embed(
                     title=f"🗑️ นำไอดีออกจากสต็อกสำเร็จ: {acc['username']}",
@@ -2037,23 +2139,42 @@ class KeyValidationBot(discord.Client):
         # Command: /stock_update (เปิดฟอร์ม Modal Tab สำหรับกรอกและอัปเดตข้อมูลไอดี)
         @self.tree.command(
             name="stock_update",
-            description="เปิดฟอร์ม (Modal Tab Form) เพื่อกรอกและอัปเดตข้อมูลไอดี",
+            description="เลือกไอดีจากคลังสต็อกหรือเปิดฟอร์มเพื่ออัปเดตข้อมูลและสถานะการขาย",
         )
         @app_commands.describe(
-            username="ชื่อไอดีที่ต้องการอัปเดต (เว้นว่างไว้เพื่อไปกรอกในฟอร์มได้)",
+            username="เลือกไอดีจากรายการที่เด้งขึ้นมา หรือเว้นว่างเพื่อเปิดเมนู Dropdown เลือกไอดี",
         )
+        @app_commands.autocomplete(username=_autocomplete_stock_username)
         async def stock_update_cmd(
             interaction: discord.Interaction,
             username: Optional[str] = None,
         ):
-            prefill = None
             if username:
                 prefill = self.kaitun_service.get_account(username.strip())
                 if not prefill:
                     prefill = {"username": username.strip()}
+                modal = StockUpdateModal(self.kaitun_service, prefill_account=prefill)
+                await interaction.response.send_modal(modal)
+                return
 
-            modal = StockUpdateModal(self.kaitun_service, prefill_account=prefill)
-            await interaction.response.send_modal(modal)
+            # If invoked without username, show interactive Select Dropdown of all IDs in stock!
+            accounts = self.kaitun_service.list_accounts(limit=25)
+            accounts.sort(key=lambda a: 0 if a.get("sale_status") != "sold" else 1)
+            if not accounts:
+                modal = StockUpdateModal(self.kaitun_service, prefill_account=None)
+                await interaction.response.send_modal(modal)
+                return
+
+            embed = discord.Embed(
+                title="📝 เลือกไอดีในสต็อกที่ต้องการอัปเดต (Stock Update)",
+                description=(
+                    "เลือกไอดีจากเมนู **Dropdown** ด้านล่างเพื่อเปิดแบบฟอร์มแก้ไขข้อมูล/บันทึกการขายทันที\n"
+                    "หรือกดปุ่ม **พิมพ์ชื่อไอดีด้วยตัวเอง** หากต้องการกรอกชื่อไอดีใหม่"
+                ),
+                color=discord.Color.blue(),
+            )
+            view = StockUpdateSelectView(self.kaitun_service, accounts)
+            await interaction.response.send_message(embed=embed, view=view, ephemeral=True)
 
         # Command: /stock_info (ดูรายละเอียดของไอดี)
         @self.tree.command(
@@ -2061,9 +2182,10 @@ class KeyValidationBot(discord.Client):
             description="ตรวจสอบรายละเอียดเฉพาะของไอดี (แมพที่ฟาร์ม, รายละเอียดของ, สถานะการขาย)",
         )
         @app_commands.describe(
-            username="ชื่อไอดี (Username) ที่ต้องการตรวจสอบ",
+            username="ชื่อไอดี (Username) ที่ต้องการตรวจสอบ (พิมพ์หรือเลือกจากรายการ)",
             ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)",
         )
+        @app_commands.autocomplete(username=_autocomplete_stock_username)
         async def stock_info_cmd(
             interaction: discord.Interaction,
             username: str,

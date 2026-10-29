@@ -238,6 +238,35 @@ def test_build_accounting_and_expense_embeds(tmp_path):
     db.close()
 
 
+def test_stock_update_select_view_and_modal(tmp_path):
+    import asyncio
+    from bot import StockUpdateModal, StockUpdateSelectView
+    from database import Database
+    from kaitun_service import KaitunService
+
+    db = Database(str(tmp_path / "bot_stock.sqlite3"))
+    db.initialize()
+    svc = KaitunService(db)
+    svc.add_stock_from_text("SSakamotoz_KsDb | pass123", user_id=1)
+
+    accounts = svc.list_accounts(limit=25)
+    assert len(accounts) == 1
+    # Match by partial username
+    acc = svc.get_account("SSakamotoz")
+    assert acc is not None
+    assert acc["username"] == "SSakamotoz_KsDb"
+
+    async def _build_ui():
+        view = StockUpdateSelectView(svc, accounts)
+        assert len(view.children) == 2
+        modal = StockUpdateModal(svc, prefill_account=acc)
+        assert modal.username_input.default == "SSakamotoz_KsDb"
+
+    asyncio.run(_build_ui())
+    db.close()
+
+
+
 
 
 

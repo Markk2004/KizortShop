@@ -191,12 +191,19 @@ class Database:
     # --- TEST ENVIRONMENT LOCAL HANDLERS ---
 
     def _local_get_account(self, username: str) -> Optional[Dict[str, Any]]:
+        u_clean = username.split("|")[0].split(":")[0].strip()
         cursor = self.connection.cursor()
         cursor.execute(
             "SELECT id, username, password, cookie, status, farmed_maps, details, sale_status, price, added_at, used_at FROM kaitun_accounts WHERE username = ? COLLATE NOCASE",
-            (username,),
+            (u_clean,),
         )
         row = cursor.fetchone()
+        if not row and u_clean:
+            cursor.execute(
+                "SELECT id, username, password, cookie, status, farmed_maps, details, sale_status, price, added_at, used_at FROM kaitun_accounts WHERE username LIKE ? COLLATE NOCASE ORDER BY id DESC LIMIT 1",
+                (f"%{u_clean}%",),
+            )
+            row = cursor.fetchone()
         return dict(row) if row else None
 
     def _local_add_account(self, username, password, cookie, raw_line, user_id):
@@ -306,12 +313,15 @@ class Database:
             "used_at": row.get("soldAt") or "",
         }
 
-    def get_kaitun_account(self, username: str) -> Optional[Dict[str, Any]]:
+    def get_kaitun_account(self, username: str, exact_only: bool = False) -> Optional[Dict[str, Any]]:
         if self._is_test_env:
             return self._local_get_account(username)
 
-        u = username.strip().lower()
-        cred_hash = hash_credential(u)
+        u_clean = username.split("|")[0].split(":")[0].strip()
+        if not u_clean:
+            return None
+
+        cred_hash = hash_credential(u_clean.lower())
         try:
             resp = requests.get(
                 f"{SUPABASE_URL}/rest/v1/AccountStock?credentialHash=eq.{cred_hash}&select=*",
@@ -321,14 +331,33 @@ class Database:
             if resp.status_code == 200 and resp.json():
                 return self._map_stock_row(resp.json()[0])
 
-            # Fallback search by username if hash differs
+            # Fallback 1: Exact case-insensitive username match
             resp2 = requests.get(
-                f"{SUPABASE_URL}/rest/v1/AccountStock?username=ilike.{username.strip()}&select=*",
+                f"{SUPABASE_URL}/rest/v1/AccountStock?username=ilike.{u_clean}&select=*",
                 headers=self._supabase_headers,
                 timeout=5
             )
             if resp2.status_code == 200 and resp2.json():
                 return self._map_stock_row(resp2.json()[0])
+
+            if not exact_only:
+                # Fallback 2: Substring / partial username match
+                resp3 = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/AccountStock?username=ilike.*{u_clean}*&order=createdAt.desc&limit=1&select=*",
+                    headers=self._supabase_headers,
+                    timeout=5
+                )
+                if resp3.status_code == 200 and resp3.json():
+                    return self._map_stock_row(resp3.json()[0])
+
+                # Fallback 3: Serial code match
+                resp4 = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/AccountStock?serialCode=ilike.*{u_clean}*&order=createdAt.desc&limit=1&select=*",
+                    headers=self._supabase_headers,
+                    timeout=5
+                )
+                if resp4.status_code == 200 and resp4.json():
+                    return self._map_stock_row(resp4.json()[0])
         except Exception as e:
             logger.error("Supabase error in get_kaitun_account: %s", e)
         return None
@@ -345,7 +374,7 @@ class Database:
             return self._local_add_account(username, password, cookie, raw_line, user_id)
 
         # Direct Supabase REST (Primary Source of Truth)
-        existing = self.get_kaitun_account(username)
+        existing = self.get_kaitun_account(username, exact_only=True)
         if existing:
             if existing.get("password") == password:
                 logger.warning("Duplicate kaitun account rejected on Supabase: '%s'", username)
@@ -895,12 +924,14 @@ class Database:
         if not acc:
             return False
 
+        real_username = acc.get("username") or username.strip()
+
         patch_data: Dict[str, Any] = {
             "updatedAt": datetime.now(timezone.utc).isoformat()
         }
 
         if password is not None:
-            cred_str = f"{username}:{password}"
+            cred_str = f"{real_username}:{password}"
             if acc.get("cookie"):
                 cred_str += f":{acc['cookie']}"
             patch_data["credentials"] = encrypt_credential(cred_str)
@@ -928,24 +959,9 @@ class Database:
             success = resp.status_code in (200, 204)
             if success:
                 try:
-                    self._local_update(username, password, farmed_maps, details, sale_status, price)
+                    self._local_update(real_username, password, farmed_maps, details, sale_status, price)
                 except Exception:
                     pass
-
-                # Also inform backend if configured (short timeout so it never blocks)
-                if sale_status == "sold" and BACKEND_API_URL and BOT_API_KEY:
-                    try:
-                        requests.post(
-                            f"{BACKEND_API_URL}/api/v1/bot/kaitun/sold",
-                            headers={
-                                "Content-Type": "application/json",
-                                "x-bot-api-key": BOT_API_KEY,
-                            },
-                            json={"username": username, "actor": actor or "Discord Bot"},
-                            timeout=1.5,
-                        )
-                    except Exception as e:
-                        logger.warning("Could not ping backend /sold: %s", e)
 
                 # Webhook Notifications
                 final_maps = farmed_maps if farmed_maps is not None else acc.get("farmed_maps", "")
@@ -961,11 +977,11 @@ class Database:
                     # 1. Broadcast sale to #web-orders
                     try:
                         embed_order = {
-                            "title": f"🎉 [ขายไอดีสำเร็จ] {username}",
+                            "title": f"🎉 [ขายไอดีสำเร็จ] {real_username}",
                             "description": "บันทึกการขายไอดีไก่ตันออกจากคลังสต็อก และคำนวณเข้าสู่ระบบบัญชีเรียบร้อยแล้ว",
                             "color": 0x10B981,
                             "fields": [
-                                {"name": "👤 บัญชี (Username)", "value": f"**{username}**", "inline": True},
+                                {"name": "👤 บัญชี (Username)", "value": f"**{real_username}**", "inline": True},
                                 {"name": "💰 ราคาขาย (รายได้)", "value": f"**{price_display}**", "inline": True},
                                 {"name": "🏷️ สถานะ", "value": "🔴 **ขายแล้ว (Sold)**", "inline": True},
                             ],
@@ -983,11 +999,11 @@ class Database:
                     # 2. Broadcast sold audit to #web-stock-logs and #kaitun-id
                     try:
                         embed_stock = {
-                            "title": f"📦 [อัปเดตสต็อกไอดี: ขายแล้ว] {username}",
+                            "title": f"📦 [อัปเดตสต็อกไอดี: ขายแล้ว] {real_username}",
                             "description": "บันทึกสถานะไอดีเป็น 'ขายแล้ว (Sold)' และตัดออกจากสต็อกพร้อมขาย",
                             "color": 0xEF4444,
                             "fields": [
-                                {"name": "👤 บัญชี", "value": f"`{username}`", "inline": True},
+                                {"name": "👤 บัญชี", "value": f"`{real_username}`", "inline": True},
                                 {"name": "🏷️ สถานะการขาย", "value": "🔴 **ขายแล้ว (Sold)**", "inline": True},
                                 {"name": "💰 ราคา", "value": f"`{price_display}`", "inline": True},
                             ],
@@ -1006,11 +1022,11 @@ class Database:
                     # Broadcast normal stock update audit to #web-stock-logs and #kaitun-id
                     try:
                         embed_stock = {
-                            "title": f"📦 [อัปเดตข้อมูลไอดี] {username}",
+                            "title": f"📦 [อัปเดตข้อมูลไอดี] {real_username}",
                             "description": "มีการแก้ไขข้อมูลไอดีในคลังสต็อก",
                             "color": 0x3B82F6,
                             "fields": [
-                                {"name": "👤 บัญชี", "value": f"`{username}`", "inline": True},
+                                {"name": "👤 บัญชี", "value": f"`{real_username}`", "inline": True},
                                 {"name": "🏷️ สถานะการขาย", "value": "🟢 **พร้อมขาย (Available)**", "inline": True},
                             ],
                             "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ทุกระบบพร้อมกัน"},
