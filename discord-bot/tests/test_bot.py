@@ -266,6 +266,133 @@ def test_stock_update_select_view_and_modal(tmp_path):
     db.close()
 
 
+def test_parse_account_line_with_price_and_details():
+    from kaitun_service import parse_account_line
+
+    # 2 parts
+    res2 = parse_account_line("user1 | pass1")
+    assert res2.username == "user1"
+    assert res2.password == "pass1"
+    assert res2.cookie is None
+    assert res2.price is None
+
+    # 3 parts with price
+    res3_price = parse_account_line("user2 | pass2 | 150")
+    assert res3_price.username == "user2"
+    assert res3_price.password == "pass2"
+    assert res3_price.price == "150"
+    assert res3_price.cookie is None
+
+    # 3 parts with cookie
+    res3_cookie = parse_account_line("user3 | pass3 | _ROBLOSECURITY_COOKIE_VAL")
+    assert res3_cookie.username == "user3"
+    assert res3_cookie.cookie == "_ROBLOSECURITY_COOKIE_VAL"
+    assert res3_cookie.price is None
+
+    # 4 parts: user | pass | price | details
+    res4 = parse_account_line("user4 | pass4 | 250 | ผลโมจิ ดาบคู่")
+    assert res4.username == "user4"
+    assert res4.password == "pass4"
+    assert res4.price == "250"
+    assert res4.details == "ผลโมจิ ดาบคู่"
+
+
+def test_expense_delete_and_shortcuts(tmp_path):
+    from database import Database
+
+    db = Database(str(tmp_path / "exp_test.sqlite3"))
+    db.initialize()
+
+    # Add 2 expenses
+    e1 = db.add_expense("ค่าสคริปต์ฟาร์ม", 100.0, "SCRIPT")
+    e2 = db.add_expense("ค่า VPS โฮสต์", 350.0, "VPS")
+    assert e1 is not None and e2 is not None
+
+    # Delete latest
+    del_latest = db.delete_expense("latest")
+    assert del_latest is not None
+    assert del_latest["title"] == "ค่า VPS โฮสต์"
+
+    # Delete by partial title
+    del_script = db.delete_expense("สคริปต์")
+    assert del_script is not None
+    assert del_script["title"] == "ค่าสคริปต์ฟาร์ม"
+
+    db.close()
+
+
+def test_cancel_or_undo_sale(tmp_path):
+    from database import Database
+    from kaitun_service import KaitunService
+
+    db = Database(str(tmp_path / "undo_test.sqlite3"))
+    db.initialize()
+    svc = KaitunService(db)
+
+    # Add account and mark as sold
+    svc.add_stock_from_text("kz_undo_acc | pass123", user_id=1)
+    svc.update_account("kz_undo_acc", sale_status="sold", price="150")
+    acc = svc.get_account("kz_undo_acc")
+    assert acc["sale_status"] == "sold"
+
+    # Cancel sale
+    res = db.cancel_or_undo_sale("kz_undo_acc")
+    assert res is not None
+    assert res["type"] == "account_restored"
+
+    acc_restored = svc.get_account("kz_undo_acc")
+    assert acc_restored["sale_status"] == "unsold"
+
+    # Non-account item sale
+    item = db.add_item_sale("ผลโมจิ", 200.0)
+    assert item is not None
+    res_item = db.cancel_or_undo_sale("ผลโมจิ")
+    assert res_item is not None
+    assert res_item["type"] == "item_sale_cancelled"
+
+    db.close()
+
+
+def test_is_staff_or_admin_permission_check():
+    from bot import is_staff_or_admin
+
+    class MockRole:
+        def __init__(self, name):
+            self.name = name
+
+    class MockPerms:
+        def __init__(self, admin=False, manage_guild=False):
+            self.administrator = admin
+            self.manage_guild = manage_guild
+            self.manage_messages = False
+
+    class MockMember:
+        def __init__(self, admin=False, roles=None):
+            self.guild_permissions = MockPerms(admin=admin)
+            self.roles = roles or []
+
+    # Admin user
+    assert is_staff_or_admin(MockMember(admin=True)) is True
+
+    # Staff role user
+    assert is_staff_or_admin(MockMember(admin=False, roles=[MockRole("Staff")])) is True
+    assert is_staff_or_admin(MockMember(admin=False, roles=[MockRole("ผู้ดูแล")])) is True
+
+    # Regular user
+    assert is_staff_or_admin(MockMember(admin=False, roles=[MockRole("Member")])) is False
+
+
+def test_bot_reply_store_guidance():
+    from bot import generate_bot_reply
+
+    reply = generate_bot_reply("มีสินค้าอะไรขายบ้าง", "kz", 8)
+    assert "KaiZort Store" in reply
+    assert "Blox Fruits" in reply
+
+    claim_reply = generate_bot_reply("ไอดีเข้าไม่ได้ เคลมยังไง", "kz", 8)
+    assert "Create ticket" in claim_reply
+
+
 
 
 

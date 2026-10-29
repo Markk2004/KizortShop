@@ -1,6 +1,8 @@
 import os
 import sqlite3
 import logging
+import json
+import requests
 from datetime import datetime, timezone
 from typing import Optional, Dict, Any, List
 
@@ -102,7 +104,7 @@ class TicketService:
                     now_iso,
                 ),
             )
-        return {
+        res = {
             "ticket_id": ticket_id,
             "channel_id": str(channel_id),
             "guild_id": str(guild_id),
@@ -115,6 +117,37 @@ class TicketService:
             "status": "OPEN",
             "created_at": now_iso,
         }
+
+        # Supabase 2-Way Sync
+        try:
+            supabase_url = os.getenv("SUPABASE_URL", "https://qidraqabrlnuurnlkwko.supabase.co")
+            supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+            if supabase_url and supabase_key:
+                headers = {
+                    "apikey": supabase_key,
+                    "Authorization": f"Bearer {supabase_key}",
+                    "Content-Type": "application/json",
+                }
+                payload = {
+                    "id": ticket_id,
+                    "userId": str(user_id),
+                    "orderId": order_id if order_id else None,
+                    "subject": subject,
+                    "detail": detail,
+                    "status": "OPEN",
+                    "createdAt": now_iso,
+                    "updatedAt": now_iso,
+                }
+                requests.post(
+                    f"{supabase_url}/rest/v1/Ticket",
+                    headers=headers,
+                    data=json.dumps(payload),
+                    timeout=5,
+                )
+        except Exception as e:
+            logger.warning("Failed to sync created ticket to Supabase: %s", e)
+
+        return res
 
     def get_active_ticket_by_user(
         self, user_id: str, guild_id: str
@@ -160,7 +193,33 @@ class TicketService:
                 """,
                 (now_iso, closed_by, reason, ticket_id),
             )
-            return cursor.rowcount > 0
+            updated = cursor.rowcount > 0
+
+        if updated:
+            # Supabase 2-Way Sync
+            try:
+                supabase_url = os.getenv("SUPABASE_URL", "https://qidraqabrlnuurnlkwko.supabase.co")
+                supabase_key = os.getenv("SUPABASE_SERVICE_ROLE_KEY")
+                if supabase_url and supabase_key:
+                    headers = {
+                        "apikey": supabase_key,
+                        "Authorization": f"Bearer {supabase_key}",
+                        "Content-Type": "application/json",
+                    }
+                    patch_data = {
+                        "status": "CLOSED",
+                        "updatedAt": now_iso,
+                    }
+                    requests.patch(
+                        f"{supabase_url}/rest/v1/Ticket?id=eq.{ticket_id}",
+                        headers=headers,
+                        data=json.dumps(patch_data),
+                        timeout=5,
+                    )
+            except Exception as e:
+                logger.warning("Failed to sync closed ticket to Supabase: %s", e)
+
+        return updated
 
     @staticmethod
     def generate_transcript_text(

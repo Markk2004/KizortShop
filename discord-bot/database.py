@@ -157,6 +157,34 @@ class Database:
                     );
                     """
                 )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS expenses (
+                        id TEXT PRIMARY KEY,
+                        title TEXT NOT NULL,
+                        category TEXT NOT NULL,
+                        amount REAL NOT NULL,
+                        note TEXT,
+                        paidAt TEXT NOT NULL,
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL
+                    );
+                    """
+                )
+                conn.execute(
+                    """
+                    CREATE TABLE IF NOT EXISTS tickets (
+                        id TEXT PRIMARY KEY,
+                        userId TEXT NOT NULL,
+                        subject TEXT NOT NULL,
+                        detail TEXT NOT NULL,
+                        orderId TEXT,
+                        status TEXT NOT NULL DEFAULT 'OPEN',
+                        createdAt TEXT NOT NULL,
+                        updatedAt TEXT NOT NULL
+                    );
+                    """
+                )
         logger.info("Database initialized successfully (test_env=%s).", self._is_test_env)
 
     def find_key(self, key_hash: str) -> Optional[Dict[str, Any]]:
@@ -206,10 +234,12 @@ class Database:
             row = cursor.fetchone()
         return dict(row) if row else None
 
-    def _local_add_account(self, username, password, cookie, raw_line, user_id):
+    def _local_add_account(self, username, password, cookie, raw_line, user_id, price=None, details=None, farmed_maps=None):
         existing = self._local_get_account(username)
         if existing:
             if existing.get("password") == password:
+                if price or details or farmed_maps:
+                    self._local_update(username, None, farmed_maps, details, None, price)
                 return "duplicate", existing
             else:
                 with self.connection:
@@ -217,14 +247,82 @@ class Database:
                         "UPDATE kaitun_accounts SET password = ?, raw_line = ?, cookie = COALESCE(?, cookie) WHERE id = ?",
                         (password, raw_line, cookie, existing["id"]),
                     )
+                if price or details or farmed_maps:
+                    self._local_update(username, None, farmed_maps, details, None, price)
                 return "password_updated", existing
         now_iso = datetime.now(timezone.utc).isoformat()
         with self.connection:
             self.connection.execute(
-                "INSERT INTO kaitun_accounts (username, password, cookie, raw_line, status, added_by, added_at) VALUES (?, ?, ?, ?, 'available', ?, ?)",
-                (username, password, cookie, raw_line, user_id, now_iso),
+                "INSERT INTO kaitun_accounts (username, password, cookie, raw_line, status, added_by, added_at, price, details, farmed_maps) VALUES (?, ?, ?, ?, 'available', ?, ?, ?, ?, ?)",
+                (username, password, cookie, raw_line, user_id, now_iso, price or "", details or "", farmed_maps or ""),
             )
         return "created", None
+
+    def _ensure_local_expenses_table(self):
+        with self.connection:
+            self.connection.execute(
+                """
+                CREATE TABLE IF NOT EXISTS expenses (
+                    id TEXT PRIMARY KEY,
+                    title TEXT NOT NULL,
+                    category TEXT NOT NULL,
+                    amount REAL NOT NULL,
+                    note TEXT,
+                    paidAt TEXT NOT NULL,
+                    createdAt TEXT NOT NULL,
+                    updatedAt TEXT NOT NULL
+                );
+                """
+            )
+
+    def _local_add_expense(self, title, amount, category="OTHER", note=None):
+        self._ensure_local_expenses_table()
+        now_iso = datetime.now(timezone.utc).isoformat()
+        exp_id = str(uuid.uuid4())
+        with self.connection:
+            self.connection.execute(
+                "INSERT INTO expenses (id, title, category, amount, note, paidAt, createdAt, updatedAt) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (exp_id, title.strip(), category.upper(), float(amount), note, now_iso, now_iso, now_iso),
+            )
+        return {
+            "id": exp_id,
+            "title": title.strip(),
+            "category": category.upper(),
+            "amount": float(amount),
+            "note": note,
+            "paidAt": now_iso,
+        }
+
+    def _local_list_expenses(self, limit=15):
+        self._ensure_local_expenses_table()
+        cur = self.connection.cursor()
+        cur.execute("SELECT * FROM expenses ORDER BY paidAt DESC LIMIT ?", (limit,))
+        return [dict(r) for r in cur.fetchall()]
+
+    def _local_delete_expense(self, expense_id):
+        self._ensure_local_expenses_table()
+        expenses = self._local_list_expenses(limit=25)
+        if not expenses:
+            return None
+        target = None
+        q = (expense_id or "").strip()
+        if q.lower() in ("latest", "ล่าสุด", "อันล่าสุด", "รายการล่าสุด"):
+            target = expenses[0]
+        else:
+            for e in expenses:
+                if e["id"] == q or e["id"].startswith(q) or q.lower() in e["title"].lower():
+                    target = e
+                    break
+        if not target:
+            target = {"id": q, "title": q, "amount": 0.0}
+
+        real_id = target.get("id")
+        with self.connection:
+            cur = self.connection.cursor()
+            cur.execute("DELETE FROM expenses WHERE id = ?", (real_id,))
+            if cur.rowcount > 0:
+                return target
+        return target if target.get("amount", 0) > 0 else None
 
     def _local_stats(self):
         cursor = self.connection.cursor()
@@ -369,14 +467,35 @@ class Database:
         cookie: Optional[str],
         raw_line: str,
         user_id: int,
+        price: Optional[str] = None,
+        details: Optional[str] = None,
+        farmed_maps: Optional[str] = None,
     ) -> Tuple[str, Optional[Dict[str, Any]]]:
         if self._is_test_env:
-            return self._local_add_account(username, password, cookie, raw_line, user_id)
+            return self._local_add_account(username, password, cookie, raw_line, user_id, price=price, details=details, farmed_maps=farmed_maps)
 
         # Direct Supabase REST (Primary Source of Truth)
         existing = self.get_kaitun_account(username, exact_only=True)
         if existing:
+            patch_data: Dict[str, Any] = {"updatedAt": datetime.now(timezone.utc).isoformat()}
+            if price is not None:
+                patch_data["sellingPriceText"] = str(price)
+            if details is not None:
+                patch_data["details"] = str(details)
+            if farmed_maps is not None:
+                patch_data["farmedMaps"] = str(farmed_maps)
+
             if existing.get("password") == password:
+                if len(patch_data) > 1:
+                    try:
+                        requests.patch(
+                            f"{SUPABASE_URL}/rest/v1/AccountStock?id=eq.{existing['id']}",
+                            headers=self._supabase_headers,
+                            data=json.dumps(patch_data),
+                            timeout=5,
+                        )
+                    except Exception as e:
+                        logger.warning("Failed to update extra account fields on Supabase: %s", e)
                 logger.warning("Duplicate kaitun account rejected on Supabase: '%s'", username)
                 return "duplicate", existing
             else:
@@ -386,11 +505,7 @@ class Database:
                     cred_str += f":{cookie}"
                 encrypted_cred = encrypt_credential(cred_str)
 
-                now_iso = datetime.now(timezone.utc).isoformat()
-                patch_data = {
-                    "credentials": encrypted_cred,
-                    "updatedAt": now_iso,
-                }
+                patch_data["credentials"] = encrypted_cred
                 if cookie:
                     patch_data["cookie"] = cookie
 
@@ -413,6 +528,8 @@ class Database:
                             ],
                             "footer": {"text": f"อัปเดตโดย Discord ID: {user_id} • ซิงค์ทุกระบบพร้อมกัน"},
                         }
+                        if price:
+                            embed_pw["fields"].append({"name": "💰 ราคา", "value": f"฿{price}", "inline": True})
                         self.broadcast_webhooks(["stocks", "kaitun_sync"], embed_pw)
                     except Exception as e:
                         logger.warning("Failed to broadcast password update webhook: %s", e)
@@ -449,6 +566,12 @@ class Database:
             "createdAt": now_iso,
             "updatedAt": now_iso,
         }
+        if price is not None:
+            record["sellingPriceText"] = str(price)
+        if details is not None:
+            record["details"] = str(details)
+        if farmed_maps is not None:
+            record["farmedMaps"] = str(farmed_maps)
 
         try:
             resp = requests.post(
@@ -471,6 +594,10 @@ class Database:
                         ],
                         "footer": {"text": f"เพิ่มโดย Discord ID: {user_id} • ซิงค์คลังสต็อกและเว็บไซต์ทันที"},
                     }
+                    if price:
+                        embed_created["fields"].append({"name": "💰 ราคา", "value": f"฿{price}", "inline": True})
+                    if details:
+                        embed_created["fields"].append({"name": "📝 รายละเอียด", "value": f"```{details[:300]}```", "inline": False})
                     self.broadcast_webhooks(["stocks"], embed_created)
                 except Exception as e:
                     logger.warning("Failed to broadcast stock created webhook: %s", e)
@@ -492,6 +619,9 @@ class Database:
         cookie: Optional[str],
         raw_line: str,
         user_id: int,
+        price: Optional[str] = None,
+        details: Optional[str] = None,
+        farmed_maps: Optional[str] = None,
     ) -> bool:
         status, _ = self.add_kaitun_account_smart(
             username=username,
@@ -499,6 +629,9 @@ class Database:
             cookie=cookie,
             raw_line=raw_line,
             user_id=user_id,
+            price=price,
+            details=details,
+            farmed_maps=farmed_maps,
         )
         return status == "created"
 
@@ -533,15 +666,52 @@ class Database:
             return {"available": 0, "used": 0, "sold": 0, "total": 0}
 
     def get_financial_stats(self) -> Dict[str, Any]:
+        import re
         if self._is_test_env:
+            cur = self.connection.cursor()
+            cur.execute("SELECT status, sale_status, price FROM kaitun_accounts")
+            rows = cur.fetchall()
+            sold_count = 0
+            available_count = 0
+            priced_available_count = 0
+            unpriced_available_count = 0
+            total_revenue = 0.0
+            inventory_value = 0.0
+            for r in rows:
+                is_sold = (r["sale_status"] == "sold" or r["status"] == "used")
+                raw_p = str(r["price"] or "")
+                nums = re.findall(r"[\d.]+", raw_p)
+                p = float(nums[0]) if nums else 0.0
+                if is_sold:
+                    sold_count += 1
+                    total_revenue += p
+                else:
+                    available_count += 1
+                    if p > 0:
+                        priced_available_count += 1
+                        inventory_value += p
+                    else:
+                        unpriced_available_count += 1
+            cur.execute("SELECT SUM(amount) FROM expenses")
+            row_exp = cur.fetchone()
+            total_expenses = float(row_exp[0] or 0.0) if row_exp and row_exp[0] else 0.0
+            avg_sold_price = (total_revenue / sold_count) if sold_count > 0 else 0.0
+            estimated_inventory_value = inventory_value + (unpriced_available_count * avg_sold_price)
+            net_profit = total_revenue - total_expenses
+            margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 100.0
             return {
-                "total_revenue": 0.0,
+                "total_revenue": total_revenue,
                 "total_cost": 0.0,
-                "net_profit": 0.0,
-                "profit_margin": 100.0,
-                "inventory_value": 0.0,
-                "sold_count": 0,
-                "available_count": 0,
+                "operating_expenses": total_expenses,
+                "net_profit": net_profit,
+                "profit_margin": round(margin, 1),
+                "inventory_value": inventory_value,
+                "sold_count": sold_count,
+                "available_count": available_count,
+                "priced_available_count": priced_available_count,
+                "unpriced_available_count": unpriced_available_count,
+                "avg_sold_price": round(avg_sold_price, 2),
+                "estimated_inventory_value": round(estimated_inventory_value, 2),
             }
 
         try:
@@ -558,9 +728,9 @@ class Database:
             total_cost = 0.0
             sold_count = 0
             available_count = 0
+            priced_available_count = 0
+            unpriced_available_count = 0
             inventory_value = 0.0
-
-            import re
 
             for it in items:
                 status = it.get("status")
@@ -575,7 +745,11 @@ class Database:
                     total_cost += cost
                 elif status == "AVAILABLE":
                     available_count += 1
-                    inventory_value += price
+                    if price > 0:
+                        priced_available_count += 1
+                        inventory_value += price
+                    else:
+                        unpriced_available_count += 1
 
             # Fetch expenses from Supabase
             total_expenses = 0.0
@@ -590,6 +764,8 @@ class Database:
             except Exception:
                 pass
 
+            avg_sold_price = (total_revenue / sold_count) if sold_count > 0 else 0.0
+            estimated_inventory_value = inventory_value + (unpriced_available_count * avg_sold_price)
             net_profit = total_revenue - total_cost - total_expenses
             margin = (net_profit / total_revenue * 100) if total_revenue > 0 else 100.0
 
@@ -602,6 +778,10 @@ class Database:
                 "inventory_value": inventory_value,
                 "sold_count": sold_count,
                 "available_count": available_count,
+                "priced_available_count": priced_available_count,
+                "unpriced_available_count": unpriced_available_count,
+                "avg_sold_price": round(avg_sold_price, 2),
+                "estimated_inventory_value": round(estimated_inventory_value, 2),
             }
         except Exception as e:
             logger.error("Error getting financial stats: %s", e)
@@ -664,13 +844,25 @@ class Database:
                 except Exception as e:
                     logger.warning("Failed to broadcast expense webhook: %s", e)
 
+                if self._is_test_env:
+                    try:
+                        self._local_add_expense(title, amount, category, note)
+                    except Exception:
+                        pass
                 return created
+            elif self._is_test_env:
+                return self._local_add_expense(title, amount, category, note)
             logger.error("Failed to add expense to Supabase: %s %s", resp.status_code, resp.text)
         except Exception as e:
+            if self._is_test_env:
+                return self._local_add_expense(title, amount, category, note)
             logger.error("Error adding expense: %s", e)
         return None
 
     def list_expenses(self, limit: int = 15) -> List[Dict[str, Any]]:
+        if self._is_test_env:
+            return self._local_list_expenses(limit)
+
         try:
             resp = requests.get(
                 f"{SUPABASE_URL}/rest/v1/Expense?order=paidAt.desc&limit={limit}&select=*",
@@ -683,32 +875,124 @@ class Database:
             logger.error("Error listing expenses: %s", e)
         return []
 
-    def delete_expense(self, expense_id: str) -> bool:
+    def delete_expense(self, expense_id: str) -> Optional[Dict[str, Any]]:
+        if self._is_test_env:
+            return self._local_delete_expense(expense_id)
+
+        target = None
+        q = (expense_id or "").strip()
+        recent = self.list_expenses(limit=30)
+        if not recent:
+            return None
+
+        if q.lower() in ("latest", "ล่าสุด", "อันล่าสุด", "รายการล่าสุด"):
+            target = recent[0]
+        else:
+            for e in recent:
+                if e.get("id") == q or e.get("id", "").startswith(q) or q.lower() in e.get("title", "").lower():
+                    target = e
+                    break
+        if not target:
+            target = {"id": q, "title": q, "amount": 0.0}
+
+        real_id = target.get("id")
         try:
             resp = requests.delete(
-                f"{SUPABASE_URL}/rest/v1/Expense?id=eq.{expense_id}",
+                f"{SUPABASE_URL}/rest/v1/Expense?id=eq.{real_id}",
                 headers=self._supabase_headers,
                 timeout=5
             )
             ok = resp.status_code in (200, 204)
             if ok:
                 try:
+                    title_str = target.get("title") or real_id
+                    amount_val = float(target.get("amount") or 0.0)
                     embed_del = {
-                        "title": f"🗑️ [ลบรายการค่าใช้จ่าย] รหัส {expense_id[:8]}",
+                        "title": f"🗑️ [ลบรายการค่าใช้จ่าย] {title_str}",
                         "description": "ลบรายการค่าใช้จ่ายออกจากระบบบัญชีและคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
                         "color": 0xEF4444,
                         "fields": [
-                            {"name": "รหัสรายการ", "value": f"`{expense_id}`", "inline": True},
+                            {"name": "รายการที่ลบ", "value": f"**{title_str}**", "inline": True},
+                            {"name": "จำนวนเงินที่ยกเลิก", "value": f"**฿{amount_val:,.2f}**" if amount_val > 0 else f"`{real_id}`", "inline": True},
                         ],
                         "footer": {"text": "ซิงค์ระบบบัญชีและแจ้งเตือนทุกระบบพร้อมกัน"},
                     }
                     self.broadcast_webhooks(["orders", "stocks", "kaitun_sync"], embed_del)
                 except Exception as e:
                     logger.warning("Failed to broadcast delete expense webhook: %s", e)
-            return ok
+                return target
+            return None
         except Exception as e:
             logger.error("Error deleting expense: %s", e)
-            return False
+            return None
+
+    def cancel_or_undo_sale(self, query: str) -> Optional[Dict[str, Any]]:
+        """ยกเลิกการขาย: หากเป็นไอดีในสต็อกจะคืนสถานะเป็น AVAILABLE / หากเป็นไอเทมจะลบรายการออก"""
+        q = query.strip()
+        if not q:
+            return None
+
+        acc = self.get_kaitun_account(q)
+        if acc:
+            is_item = (
+                acc.get("password") == "ITEM_SALE"
+                or "ITEM-" in str(acc.get("serialCode") or "")
+                or "ITEM-" in str(acc.get("username") or "")
+            )
+            if is_item:
+                if self._is_test_env:
+                    with self.connection as conn:
+                        conn.execute("DELETE FROM kaitun_accounts WHERE id = ?", (acc["id"],))
+                        return {"type": "item_sale_cancelled", "item": acc}
+                else:
+                    try:
+                        requests.delete(
+                            f"{SUPABASE_URL}/rest/v1/AccountStock?id=eq.{acc['id']}",
+                            headers=self._supabase_headers,
+                            timeout=5,
+                        )
+                        return {"type": "item_sale_cancelled", "item": acc}
+                    except Exception as e:
+                        logger.error("Error deleting item sale: %s", e)
+            elif acc.get("sale_status") == "sold" or acc.get("status") in ("used", "SOLD"):
+                ok = self.update_kaitun_account(acc["username"], sale_status="unsold")
+                if ok:
+                    return {"type": "account_restored", "account": acc}
+            else:
+                return {"type": "account_not_sold", "account": acc}
+
+        if self._is_test_env:
+            with self.connection as conn:
+                cur = conn.cursor()
+                cur.execute("SELECT * FROM kaitun_accounts WHERE username LIKE ? AND sale_status = 'sold' LIMIT 1", (f"%{q}%",))
+                row = cur.fetchone()
+                if row:
+                    cur.execute("DELETE FROM kaitun_accounts WHERE id = ?", (row["id"],))
+                    return {"type": "item_sale_cancelled", "item": dict(row)}
+        else:
+            try:
+                resp = requests.get(
+                    f"{SUPABASE_URL}/rest/v1/AccountStock?username=ilike.*{q}*&status=eq.SOLD&limit=1&select=*",
+                    headers=self._supabase_headers,
+                    timeout=5
+                )
+                if resp.status_code == 200 and resp.json():
+                    item = resp.json()[0]
+                    if "ITEM-" in item.get("serialCode", "") or "ITEM_SALE" in item.get("credentials", ""):
+                        del_resp = requests.delete(
+                            f"{SUPABASE_URL}/rest/v1/AccountStock?id=eq.{item['id']}",
+                            headers=self._supabase_headers,
+                            timeout=5
+                        )
+                        if del_resp.status_code in (200, 204):
+                            return {"type": "item_sale_cancelled", "item": item}
+                    else:
+                        ok = self.update_kaitun_account(item.get("username", q), sale_status="unsold")
+                        if ok:
+                            return {"type": "account_restored", "account": item}
+            except Exception as e:
+                logger.error("Error cancelling sale: %s", e)
+        return None
 
     def get_webhook_url(self, channel_key: str) -> Optional[str]:
         try:
@@ -769,7 +1053,7 @@ class Database:
         serial = f"ITEM-{int(datetime.now().timestamp()) % 100000:05d}"
 
         if self._is_test_env:
-            with self._get_connection() as conn:
+            with self.connection as conn:
                 cur = conn.cursor()
                 cur.execute(
                     """
@@ -1074,7 +1358,7 @@ class Database:
 
     def delete_kaitun_account(self, username: str) -> bool:
         if self._is_test_env:
-            with self._get_connection() as conn:
+            with self.connection as conn:
                 cur = conn.cursor()
                 cur.execute("DELETE FROM kaitun_accounts WHERE username = ? COLLATE NOCASE", (username.strip(),))
                 conn.commit()

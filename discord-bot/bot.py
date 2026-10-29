@@ -7,7 +7,7 @@ import urllib.request
 import urllib.error
 import tempfile
 from datetime import datetime
-from typing import Optional
+from typing import Optional, Any, List, Dict, Tuple
 from dotenv import load_dotenv
 
 # Ensure .env is loaded before importing database or other modules
@@ -30,13 +30,43 @@ from agy_service import AgyService, load_agy_settings, split_for_discord
 logger = logging.getLogger(__name__)
 
 
+def is_staff_or_admin(user_or_member: Any) -> bool:
+    """ตรวจสอบว่าผู้ใช้เป็นแอดมินหรือทีมงานหรือไม่"""
+    if not hasattr(user_or_member, "guild_permissions"):
+        return True
+    perms = getattr(user_or_member, "guild_permissions", None)
+    if perms and (perms.administrator or perms.manage_guild or perms.manage_messages):
+        return True
+    roles = getattr(user_or_member, "roles", [])
+    for r in roles:
+        r_name = getattr(r, "name", "").lower()
+        if any(k in r_name for k in ["admin", "staff", "mod", "owner", "ผู้ดูแล", "แอดมิน"]):
+            return True
+    return False
+
+
 def generate_bot_reply(user_message: str, prefix: str, hex_length: int) -> str:
     msg = user_message.lower().strip()
 
     if any(w in msg for w in ["สวัสดี", "หวัดดี", "ดีครับ", "ดีค่ะ", "hello", "hi", "hey"]):
         return (
-            "[INFO] สวัสดีครับ ผมเป็นบอทผู้ช่วยสำหรับเซิร์ฟเวอร์นี้ครับ\n"
-            "คุณสามารถพิมพ์คำสั่ง `/getkey` เพื่อรับคีย์ หรือพิมพ์ `/process` เพื่อส่งลิงก์ หรือพิมพ์ `/help` เพื่อดูคำสั่งทั้งหมดครับ"
+            "[INFO] สวัสดีครับ ยินดีต้อนรับสู่ KaiZort Store ครับ\n"
+            "คุณสามารถพิมพ์คำสั่ง `/getkey` เพื่อรับคีย์ หรือพิมพ์ `/help` เพื่อดูคู่มือคำสั่งทั้งหมด หรือพิมพ์ `/ask` เพื่อสอบถามข้อมูลได้ตลอดเวลาครับ"
+        )
+
+    if any(w in msg for w in ["สินค้า", "ขายอะไร", "มีอะไรขาย", "ราคา", "สต็อก", "stock", "catalog"]):
+        return (
+            "[STORE] **สินค้าและบริการของ KaiZort Store:**\n"
+            "• ไอดีไก่ตัน Roblox (Blox Fruits, King Legacy, Anime Vanguards)\n"
+            "• ระบบส่งมอบสินค้าอัตโนมัติ 24 ชม. ผ่านเว็บไซต์ทางการ\n"
+            "• ตรวจสอบสินค้าในห้อง `#store-website` หรือสอบถามแอดมินใน `#support-tickets` ได้เลยครับ"
+        )
+
+    if any(w in msg for w in ["เคลม", "ปัญหา", "เข้าไม่ได้", "รหัสผิด", "ช่วยด้วย", "ticket"]):
+        return (
+            "[SUPPORT] **การแจ้งปัญหาและเคลมสินค้า:**\n"
+            "• สามารถกดปุ่ม **Create ticket** ในห้อง `#support-tickets` เพื่อเปิดห้องพูดคุยกับทีมงานได้ทันที\n"
+            "• สินค้าทุกชิ้นมีการรับประกัน 24 ชม. ทีมงานพร้อมดูแลตลอดเวลาครับ"
         )
 
     if any(w in msg for w in ["process", "ลิงก์", "link", "โปรเซส"]):
@@ -56,11 +86,11 @@ def generate_bot_reply(user_message: str, prefix: str, hex_length: int) -> str:
 
     if any(w in msg for w in ["ใคร", "บอทคือใคร", "ทำอะไรได้", "who are you", "help", "คำสั่ง"]):
         return (
-            "[BOT] **เกี่ยวกับบอท:**\n"
-            "ผมเป็นบอทผู้ช่วยดูแลระบบคีย์และตอบคำถามทั่วไปในเซิร์ฟเวอร์\n"
+            "[BOT] **เกี่ยวกับ KaiZort Assistant:**\n"
+            "ผมเป็นบอทผู้ช่วยดูแลร้าน KaiZort Store จัดการสต็อกไก่ตัน ระบบคีย์ และบริการลูกค้า\n"
             "• ใช้ `/getkey` หรือ `/redeem` เพื่อรับคีย์ของคุณทันที\n"
-            "• ใช้ `/process` เพื่อประมวลผลลิงก์ผ่านระบบที่ได้รับอนุญาต\n"
-            "• ใช้ `/help` เพื่อดูคำสั่งทั้งหมด\n"
+            "• ใช้ `/help` เพื่อดูคู่มือคำสั่งลัดประจำห้อง\n"
+            "• ใช้ `/accounting` เพื่อดูสรุปบัญชีร้าน (Admin/Staff)\n"
             "• ใช้ `/ask` เพื่อพูดคุยหรือสอบถามผมได้ตลอดเวลาครับ"
         )
 
@@ -113,14 +143,19 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
                 "  - `update kaimhaShozp_baa รหัส: NewPass123` (เปลี่ยนรหัสผ่าน)\n"
                 "  - `update kaimhaShozp_baa ขายแล้ว` หรือ `ยังไม่ขาย` (เปลี่ยนสถานะขาย)\n"
                 "  - `update kaimhaShozp_baa แมพ: Blox Fruits ข้อมูล: เวลตัน ผลโมจิ ราคา: 150 บาท`\n"
+                "• `ขาย <ชื่อไอดี> <ราคา>` หรือ `ขายแล้ว <ชื่อไอดี> [ราคา]` - บันทึกสถานะขายแล้วพร้อมระบุราคาและซิงค์บัญชี\n"
+                "• `ราคา <ชื่อไอดี> <บาท>` - ตั้งหรือแก้ไขราคาขายของไอดีในสต็อก\n"
+                "• `ยกเลิกขาย <ชื่อไอดี>` - คืนสถานะไอดีกลับสู่คลังสต็อกพร้อมขาย (Available)\n"
                 "• `info <ชื่อไอดี>` - ดูรายละเอียดเชิงลึก รหัสผ่าน ประวัติ และราคาของไอดีนั้น\n"
                 "• `stock` - ตรวจสอบสรุปจำนวนสต็อกรวมในคลัง (พร้อมขาย, ขายแล้ว, ทั้งหมด)\n"
                 "• `stock list` - แสดงรายชื่อไอดีทั้งหมดในคลัง (สูงสุด 50 รายการ)\n"
                 "• `stock unsold` (หรือ `ยังไม่ขาย`) - ดูเฉพาะไอดีที่พร้อมขาย\n"
                 "• `stock sold` (หรือ `ขายแล้ว` / `ประวัติ`) - ดูเฉพาะไอดีที่ขายแล้ว\n"
                 "• `get [จำนวน]` (หรือ `เบิก [จำนวน]`) - เบิกไอดีออกจากสต็อกพร้อมตัดยอดอัตโนมัติ\n"
-                "• วางข้อความ `<user>|<pass>|<cookie>` - นำเข้าสต็อกอัตโนมัติ (หากไอดีมีอยู่แล้วจะอัปเดตรหัสผ่านให้ทันที ไม่เพิ่มสต็อกซ้ำ)\n"
-                "• พิมพ์ `<ชื่อไอดี> ขายแล้ว` - ตัดสถานะเป็นขายแล้วทันที"
+                "• วางข้อความ `<user>|<pass>|<ราคา>|<รายละเอียด>` - นำเข้าสต็อกพร้อมราคาและรายละเอียด\n"
+                "• `รายจ่าย <รายการ> <จำนวน>` (หรือ `จ่าย <รายการ> <จำนวน>`) - บันทึกค่าใช้จ่ายร้าน\n"
+                "• `ลบรายจ่ายล่าสุด` หรือ `ลบรายจ่าย <ชื่อ/id>` - ลบรายการค่าใช้จ่ายและคำนวณกำไรใหม่\n"
+                "• `accounting` / `บัญชี` / `กำไร` - ดูสรุปบัญชียอดขาย ต้นทุน และกำไรสุทธิ"
             ),
             inline=False,
         )
@@ -132,7 +167,11 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
                 "• `/stock_info [username]` - ดูข้อมูลไอดีอย่างละเอียด\n"
                 "• `/stock_update [username]` - เปิดฟอร์ม Modal Tab เพื่อแก้ไข\n"
                 "• `/stock_password [username] [new_pass]` - เปลี่ยนรหัสผ่านของไอดี\n"
-                "• `/stock_dispense [amount]` - เบิกไอดีจากสต็อก\n"
+                "• `/stock_dispense [amount]` - เบิกไอดีจากสต็อก (Admin/Staff)\n"
+                "• `/stock_remove [username]` - นำไอดีออกจากคลังสต็อก (Admin/Staff)\n"
+                "• `/expense_add [title] [amount] [category] [note]` - บันทึกค่าใช้จ่ายร้าน\n"
+                "• `/expense_delete [item]` - ลบรายการค่าใช้จ่ายร้าน (Admin/Staff)\n"
+                "• `/accounting` - สรุปงบการเงิน รายรับ รายจ่าย และกำไรสุทธิ\n"
                 "• `/gen_id [prefix] [amount]` - สุ่ม Username + Password สำหรับนำไปสมัคร"
             ),
             inline=False,
@@ -321,8 +360,14 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
             inline=False,
         )
         embed.add_field(
-            name="[คำสั่งจัดการ Webhook]",
-            value="• `/setup_web_channels` - สั่งตรวจสอบและเชื่อมโยง Webhook ทั้งหมดเข้าสู่ Supabase อัตโนมัติ",
+            name="[คำสั่งจัดการ Webhook และระบบบัญชี]",
+            value=(
+                "• `/setup_web_channels` - สั่งตรวจสอบและเชื่อมโยง Webhook ทั้งหมดเข้าสู่ Supabase อัตโนมัติ\n"
+                "• `/accounting` - สรุปงบการเงิน รายได้ ต้นทุน ค่าใช้จ่ายร้าน และกำไรสุทธิ\n"
+                "• `/expense_add [title] [amount] [category]` - บันทึกค่าใช้จ่ายร้าน\n"
+                "• `/expense_delete [item]` - ลบรายการค่าใช้จ่ายร้าน\n"
+                "• คำสั่งแชทด่วน: `accounting`, `รายจ่าย`, `ลบรายจ่ายล่าสุด`, `ลบรายจ่าย <ชื่อ/id>`"
+            ),
             inline=False,
         )
         embed.set_footer(text="KAIZORT SYSTEM LOGS | สำหรับทีมงานและผู้ดูแลระบบ")
@@ -357,9 +402,9 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
         inline=False,
     )
     embed.add_field(
-        name="[4. KAIZORT WEB LOGS (Admin)]",
+        name="[4. KAIZORT WEB LOGS & VAULT (Admin)]",
         value=(
-            "• `#kaitun-id` - จัดการคลังไอดีไก่ตัน ซิงค์ 2 ทาง (พิมพ์ `gen`, `update`, `info`, `stock`, `get`)\n"
+            "• `#kaitun-id` - จัดการคลังไอดีไก่ตัน ซิงค์ 2 ทาง (พิมพ์ `gen`, `update`, `ขาย`, `ราคา`, `stock`, `get`, `รายจ่าย`)\n"
             "• `#web-orders`, `#web-topups`, `#web-stock-logs`, `#web-catalog`, `#web-tickets-audit` - บันทึก Webhook แจ้งเตือนอัตโนมัติ"
         ),
         inline=False,
@@ -609,6 +654,10 @@ def build_accounting_embed(db: Database) -> discord.Embed:
     inv_val = stats.get("inventory_value", 0.0)
     sold = stats.get("sold_count", 0)
     avail = stats.get("available_count", 0)
+    priced_avail = stats.get("priced_available_count", avail)
+    unpriced_avail = stats.get("unpriced_available_count", 0)
+    est_inv_val = stats.get("estimated_inventory_value", inv_val)
+    avg_sold_p = stats.get("avg_sold_price", 0.0)
 
     is_loss = profit < 0
     profit_str = (
@@ -630,7 +679,13 @@ def build_accounting_embed(db: Database) -> discord.Embed:
         value=f"**{profit_str}** ({margin}%)",
         inline=True,
     )
-    embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=f"฿{inv_val:,.2f} ({avail} บัญชี)", inline=True)
+
+    if unpriced_avail > 0:
+        inv_desc = f"฿{inv_val:,.2f} ({priced_avail} บัญชีที่มีราคา)\n+ รอตั้งราคา {unpriced_avail} บัญชี (ประเมิน: ~฿{est_inv_val:,.2f})"
+    else:
+        inv_desc = f"฿{inv_val:,.2f} ({avail} บัญชี)"
+
+    embed.add_field(name="💎 มูลค่าสต็อกคงเหลือ", value=inv_desc, inline=True)
     embed.add_field(name="📦 สถานะคลังรวม", value=f"🟢 พร้อมขาย: {avail} | 🔴 ขายแล้ว: {sold}", inline=True)
 
     # Show itemized recent income & expenses directly in /accounting
@@ -1037,6 +1092,25 @@ class CreateTicketModal(discord.ui.Modal, title="เปิดตั๋วแจ�
                 except Exception as e:
                     logger.warning("Failed to send audit log: %s", e)
 
+            # Broadcast to webhook channel #web-tickets-audit
+            try:
+                db_inst = getattr(interaction.client, "db", None)
+                if db_inst:
+                    audit_webhook_payload = {
+                        "title": f"🎫 [AUDIT] ตั๋วบริการใหม่: #{num:04d} ({ticket_id})",
+                        "description": f"ผู้แจ้ง: {user.name} (ID: `{user.id}`)\nห้องตั๋ว: #{channel_name}",
+                        "color": 0x10B981,
+                        "fields": [
+                            {"name": "หัวข้อเรื่อง", "value": f"**{subject}**", "inline": False},
+                            {"name": "เลขที่คำสั่งซื้อ", "value": order_text, "inline": True},
+                            {"name": "รายละเอียด", "value": f"```{detail[:600]}```", "inline": False},
+                        ],
+                        "footer": {"text": f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} • KaiZort Audit System"},
+                    }
+                    db_inst.broadcast_webhooks(["tickets_audit"], audit_webhook_payload)
+            except Exception as e:
+                logger.warning("Failed to broadcast ticket audit webhook: %s", e)
+
             await interaction.followup.send(
                 f"[สำเร็จ] สร้างห้องตั๋วบริการเรียบร้อยแล้ว: {ticket_ch.mention}",
                 ephemeral=True,
@@ -1206,6 +1280,24 @@ class ConfirmCloseView(discord.ui.View):
             except Exception as e:
                 logger.warning("Could not send transcript to audit channel: %s", e)
 
+        # Broadcast to webhook channel #web-tickets-audit
+        try:
+            db_inst = getattr(interaction.client, "db", None)
+            if db_inst:
+                audit_close_payload = {
+                    "title": f"🔒 [AUDIT] ปิดตั๋วบริการ: {t_id}",
+                    "description": f"ปิดโดย: {closer.name} (`{closer.id}`)\nห้อง: #{ch.name}",
+                    "color": 0xEF4444,
+                    "fields": [
+                        {"name": "รหัสตั๋ว", "value": f"`{t_id}`", "inline": True},
+                        {"name": "หัวข้อเรื่อง", "value": f"`{t_data.get('subject', 'Ticket')}`", "inline": True},
+                    ],
+                    "footer": {"text": f"Time: {datetime.now().strftime('%Y-%m-%d %H:%M:%S')} • KaiZort Audit System"},
+                }
+                db_inst.broadcast_webhooks(["tickets_audit"], audit_close_payload)
+        except Exception as e:
+            logger.warning("Failed to broadcast ticket close audit webhook: %s", e)
+
         # 3. Update database
         if ticket_info:
             self.ticket_service.close_ticket(t_id, closed_by=closer.name, reason="Closed by user/staff")
@@ -1267,8 +1359,49 @@ class KeyValidationBot(discord.Client):
         self.ticket_service = ticket_service or TicketService(default_ticket_db)
         self.tree = app_commands.CommandTree(self)
         self.agy_service = AgyService(load_agy_settings())
+        self._last_health_check_date: Optional[str] = None
 
         self._register_commands()
+
+    def _maybe_send_daily_health_check(self) -> None:
+        """ส่งรายงานสรุปสถานะระบบและคลังสต็อกประจำวันเมื่อบอทตื่นหรือมีกิจกรรมในวันนั้น"""
+        try:
+            today_str = datetime.now().strftime("%Y-%m-%d")
+            if self._last_health_check_date == today_str:
+                return
+            self._last_health_check_date = today_str
+
+            stats = self.db.get_financial_stats()
+            k_stats = self.kaitun_service.get_stock_summary()
+            rf_info = self.roblox_service.get_status_info()
+
+            embed = {
+                "title": "☀️ [สรุปสถานะระบบประจำวัน] KaiZort Assistant & Stock Hub",
+                "description": "บอทเริ่มการทำงานประจำวัน พร้อมระบบซิงค์ 2-Way Sync คลังสต็อก และ Webhook อัตโนมัติ",
+                "color": 0x3B82F6,
+                "fields": [
+                    {
+                        "name": "📦 คลังสต็อกไอดี",
+                        "value": f"พร้อมขาย: **{k_stats.get('available', 0)}** | ขายแล้ว: **{k_stats.get('sold', 0)}** | ทั้งหมด: **{k_stats.get('total', 0)}**",
+                        "inline": False,
+                    },
+                    {
+                        "name": "💰 สรุปบัญชีร้าน",
+                        "value": f"กำไรสุทธิ: **฿{stats.get('net_profit', 0.0):,.2f}** | รายรับ: ฿{stats.get('total_revenue', 0.0):,.2f} | ค่าใช้จ่าย: ฿{stats.get('operating_expenses', 0.0):,.2f}",
+                        "inline": False,
+                    },
+                    {
+                        "name": "🤖 สถานะตัวเกม & โฮสต์",
+                        "value": f"สถานะ: `{rf_info.get('status_text', 'Active')}` | เกจเวลา: `{rf_info.get('duration_str', '-')}`",
+                        "inline": False,
+                    },
+                ],
+                "footer": {"text": f"Daily Health Audit Log • {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}"},
+            }
+            self.db.broadcast_webhooks(["stocks"], embed)
+            logger.info("Broadcasted activity-driven daily health check for date %s", today_str)
+        except Exception as e:
+            logger.warning("Failed to send daily health check: %s", e)
 
     async def setup_hook(self):
         # Register persistent views inside the active asyncio event loop
@@ -2009,12 +2142,16 @@ class KeyValidationBot(discord.Client):
             amount="จำนวนไอดีที่ต้องการเบิก (1 - 10)",
             ephemeral="แสดงผลเฉพาะคุณหรือไม่ (แนะนำ: True เพื่อความปลอดภัยของรหัส)",
         )
+        @app_commands.default_permissions(manage_messages=True)
         async def stock_dispense_cmd(
             interaction: discord.Interaction,
             amount: int = 1,
             ephemeral: bool = True,
         ):
             await interaction.response.defer(ephemeral=ephemeral)
+            if not is_staff_or_admin(interaction.user):
+                await interaction.followup.send("❌ คำสั่งนี้สำหรับแอดมินหรือทีมงานเท่านั้น", ephemeral=True)
+                return
             amount = max(1, min(amount, 10))
             accounts = self.kaitun_service.dispense_accounts(count=amount, user_id=interaction.user.id)
             if not accounts:
@@ -2128,11 +2265,15 @@ class KeyValidationBot(discord.Client):
             username="ชื่อไอดี Roblox ที่ต้องการนำออก (พิมพ์หรือเลือกจากรายการ)",
         )
         @app_commands.autocomplete(username=_autocomplete_stock_username)
+        @app_commands.default_permissions(manage_messages=True)
         async def stock_remove_cmd(
             interaction: discord.Interaction,
             username: str,
         ):
             await interaction.response.defer(ephemeral=True)
+            if not is_staff_or_admin(interaction.user):
+                await interaction.followup.send("❌ คำสั่งนี้สำหรับแอดมินหรือทีมงานเท่านั้น", ephemeral=True)
+                return
             target_u = username.strip()
             acc = self.kaitun_service.get_account(target_u)
             if not acc:
@@ -2496,6 +2637,60 @@ class KeyValidationBot(discord.Client):
             embed.set_footer(text=f"บันทึกโดย {interaction.user.name} • ซิงค์กับระบบบัญชีเว็บทันที")
             await interaction.followup.send(embed=embed)
 
+        async def _autocomplete_expense_item(
+            interaction: discord.Interaction,
+            current: str,
+        ) -> List[app_commands.Choice[str]]:
+            try:
+                expenses = self.db.list_expenses(limit=25)
+                choices = []
+                for e in expenses:
+                    t = e.get("title", "")
+                    a = float(e.get("amount") or 0.0)
+                    eid = e.get("id", "")
+                    label = f"{t} — ฿{a:,.2f}"
+                    if current.lower() in label.lower() or current.lower() in eid.lower():
+                        choices.append(app_commands.Choice(name=label[:100], value=eid))
+                return choices[:25]
+            except Exception:
+                return []
+
+        # Command: /expense_delete
+        @self.tree.command(
+            name="expense_delete",
+            description="ลบรายการค่าใช้จ่ายร้านออกจากระบบบัญชี (Admin/Staff only)",
+        )
+        @app_commands.describe(
+            item="เลือกรหัสหรือรายการค่าใช้จ่ายที่ต้องการลบ",
+        )
+        @app_commands.autocomplete(item=_autocomplete_expense_item)
+        @app_commands.default_permissions(manage_messages=True)
+        async def expense_delete_cmd(
+            interaction: discord.Interaction,
+            item: str,
+        ):
+            await interaction.response.defer(ephemeral=True)
+            if not is_staff_or_admin(interaction.user):
+                await interaction.followup.send("❌ คำสั่งนี้สำหรับแอดมินหรือทีมงานเท่านั้น", ephemeral=True)
+                return
+
+            deleted = self.db.delete_expense(item)
+            if deleted:
+                title_str = deleted.get("title") or item
+                amount_val = float(deleted.get("amount") or 0.0)
+                embed = discord.Embed(
+                    title=f"🗑️ ลบรายการค่าใช้จ่ายสำเร็จ: {title_str}",
+                    description="นำรายการค่าใช้จ่ายออกจากระบบบัญชี และคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
+                    color=discord.Color.red(),
+                )
+                embed.add_field(name="รายการ", value=f"**{title_str}**", inline=True)
+                if amount_val > 0:
+                    embed.add_field(name="จำนวนเงิน", value=f"**฿{amount_val:,.2f}**", inline=True)
+                embed.set_footer(text=f"ดำเนินการโดย {interaction.user.name} • ซิงค์กับระบบบัญชีทันที")
+                await interaction.followup.send(embed=embed, ephemeral=True)
+            else:
+                await interaction.followup.send(f"❌ ไม่พบรายการค่าใช้จ่าย `{item}` หรือไม่สามารถลบได้", ephemeral=True)
+
         # Command: /income (บันทึกรายได้จากการขายไอเทม/ผลปีศาจ/บริการ)
         @self.tree.command(
             name="income",
@@ -2664,6 +2859,9 @@ class KeyValidationBot(discord.Client):
         if message.author == self.user:
             return
 
+        # Activity-driven daily health check
+        self._maybe_send_daily_health_check()
+
         channel_name = getattr(message.channel, "name", "").lower()
         channel_id = getattr(message.channel, "id", 0)
         category_name = ""
@@ -2800,6 +2998,46 @@ class KeyValidationBot(discord.Client):
         # 6. Special handler for #kaitun-id channel
         if "kaitun" in channel_name or channel_id == 1561017098094772264:
 
+            # 1.4 Delete Expense Shortcuts
+            if lower_msg in ["ลบรายจ่ายล่าสุด", "ยกเลิกรายจ่าย", "ลบค่าใช้จ่ายล่าสุด", "ยกเลิกค่าใช้จ่าย"]:
+                deleted = self.db.delete_expense("latest")
+                if deleted:
+                    title_str = deleted.get("title", "รายการล่าสุด")
+                    amt = float(deleted.get("amount") or 0.0)
+                    embed = discord.Embed(
+                        title="🗑️ ลบรายการค่าใช้จ่ายล่าสุดสำเร็จ",
+                        description="นำรายการค่าใช้จ่ายออกจากระบบบัญชี และคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
+                        color=discord.Color.red(),
+                    )
+                    embed.add_field(name="รายการ", value=f"**{title_str}**", inline=True)
+                    if amt > 0:
+                        embed.add_field(name="จำนวนเงิน", value=f"**฿{amt:,.2f}**", inline=True)
+                    embed.set_footer(text=f"ลบโดย {message.author.name} • ซิงค์กับระบบบัญชีทันที")
+                    await message.reply(embed=embed)
+                else:
+                    await message.reply("❌ ไม่พบรายการค่าใช้จ่ายที่ต้องการลบในระบบ")
+                return
+
+            if lower_msg.startswith("ลบรายจ่าย ") or lower_msg.startswith("ลบค่าใช้จ่าย ") or lower_msg.startswith("ยกเลิกจ่าย "):
+                target_exp = raw_msg.split(maxsplit=1)[1].strip()
+                deleted = self.db.delete_expense(target_exp)
+                if deleted:
+                    title_str = deleted.get("title", target_exp)
+                    amt = float(deleted.get("amount") or 0.0)
+                    embed = discord.Embed(
+                        title=f"🗑️ ลบรายการค่าใช้จ่ายสำเร็จ: {title_str}",
+                        description="นำรายการค่าใช้จ่ายออกจากระบบบัญชี และคำนวณกำไรสุทธิใหม่เรียบร้อยแล้ว",
+                        color=discord.Color.red(),
+                    )
+                    embed.add_field(name="รายการ", value=f"**{title_str}**", inline=True)
+                    if amt > 0:
+                        embed.add_field(name="จำนวนเงิน", value=f"**฿{amt:,.2f}**", inline=True)
+                    embed.set_footer(text=f"ลบโดย {message.author.name} • ซิงค์กับระบบบัญชีทันที")
+                    await message.reply(embed=embed)
+                else:
+                    await message.reply(f"❌ ไม่พบรายการค่าใช้จ่าย `{target_exp}` ในระบบ")
+                return
+
             # 1.5 Expense Quick Text Trigger
             if lower_msg in [
                 "รายจ่าย", "ค่าใช้จ่าย", "expense", "expenses",
@@ -2870,30 +3108,142 @@ class KeyValidationBot(discord.Client):
                             await message.reply(embed=embed)
                             return
 
-            # Fast Chat Shortcut for Recording Item Sales: ขาย <ชื่อไอเทม> <ราคา> หรือ รายได้ <ชื่อ> <ราคา>
-            if (lower_msg.startswith("ขาย ") or lower_msg.startswith("ได้ ") or lower_msg.startswith("รายได้ ")) and not lower_msg.startswith("/"):
-                # Avoid conflict with "ขายแล้ว" (sold account trigger)
-                if not any(lower_msg.startswith(p) for p in ["ขายแล้ว", "ขายเเล้ว", "ขายละ", "ขายล่ะ"]):
-                    parts = raw_msg.split()
-                    if len(parts) >= 2:
-                        import re
-                        m = re.search(r"(\d+(?:\.\d+)?)\s*(?:บาท|thb)?$", raw_msg, re.IGNORECASE)
-                        if m:
-                            amount = float(m.group(1))
-                            title = raw_msg[len(parts[0]):m.start()].strip()
-                            if title and amount > 0:
-                                res = self.db.add_item_sale(title=title, amount=amount, user_id=message.author.id)
-                                if res:
-                                    embed = discord.Embed(
-                                        title=f"🎉 บันทึกการขายไอเทมเรียบร้อย: {title}",
-                                        description="บันทึกยอดขายเข้าระบบบัญชีร้าน และเพิ่มกำไรสุทธิเรียบร้อยแล้ว",
-                                        color=discord.Color.green(),
-                                    )
-                                    embed.add_field(name="📦 รายการ", value=f"**{title}**", inline=True)
-                                    embed.add_field(name="💰 ราคาขาย (รายได้)", value=f"**฿{amount:,.2f}**", inline=True)
-                                    embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
-                                    await message.reply(embed=embed)
-                                    return
+            # 1.6 Undo / Cancel Sale Shortcut
+            if (lower_msg.startswith("ยกเลิกขาย ") or lower_msg.startswith("ยกเลิกรายการ ") or lower_msg.startswith("คืนสต็อก ")) and not lower_msg.startswith("/"):
+                target_item = raw_msg.split(maxsplit=1)[1].strip()
+                res = self.db.cancel_or_undo_sale(target_item)
+                if res:
+                    rtype = res.get("type")
+                    if rtype == "account_restored":
+                        acc = res["account"]
+                        embed = discord.Embed(
+                            title=f"↩️ คืนสถานะไอดีสู่คลังสต็อก: {acc.get('username', target_item)}",
+                            description="ปรับสถานะไอดีกลับเป็น 'พร้อมขาย (Available)' เรียบร้อยแล้ว",
+                            color=discord.Color.green(),
+                        )
+                        embed.add_field(name="👤 ชื่อไอดี", value=f"`{acc.get('username', target_item)}`", inline=True)
+                        embed.add_field(name="🏷️ สถานะ", value="🟢 **พร้อมขาย (Available)**", inline=True)
+                        embed.set_footer(text=f"ดำเนินการโดย {message.author.name} • ซิงค์คลังสต็อกทันที")
+                        await message.reply(embed=embed)
+                    elif rtype == "item_sale_cancelled":
+                        embed = discord.Embed(
+                            title=f"🗑️ ยกเลิกรายการขายเรียบร้อย: {target_item}",
+                            description="ลบรายการขายออกจากระบบและปรับปรุงยอดบัญชีเรียบร้อยแล้ว",
+                            color=discord.Color.orange(),
+                        )
+                        embed.set_footer(text=f"ดำเนินการโดย {message.author.name} • ซิงค์ระบบบัญชีทันที")
+                        await message.reply(embed=embed)
+                    elif rtype == "account_not_sold":
+                        await message.reply(f"ℹ️ ไอดี `{target_item}` มีสถานะพร้อมขาย (Available) อยู่แล้วในสต็อก")
+                else:
+                    await message.reply(f"❌ ไม่พบรายการขายที่ตรงกับ `{target_item}` ในระบบ")
+                return
+
+            # 1.7 Set / Update Stock Price Shortcut: ราคา <ชื่อไอดี> <ราคา> หรือ ตั้งราคา <ชื่อไอดี> <ราคา>
+            if (lower_msg.startswith("ราคา ") or lower_msg.startswith("ตั้งราคา ")) and not lower_msg.startswith("/"):
+                parts = raw_msg.split()
+                if len(parts) >= 3:
+                    target_u = parts[1].strip()
+                    import re
+                    nums = re.findall(r"[\d.]+", parts[2])
+                    if nums:
+                        price_val = nums[0]
+                        acc = self.kaitun_service.get_account(target_u)
+                        if not acc:
+                            await message.reply(f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก")
+                            return
+                        self.kaitun_service.update_account(
+                            username=acc["username"],
+                            price=f"{price_val}",
+                            actor=message.author.name,
+                        )
+                        embed = discord.Embed(
+                            title=f"💰 อัปเดตราคาไอดีสำเร็จ: {acc['username']}",
+                            description="บันทึกราคาขายเข้าสู่คลังสต็อกและระบบบัญชีเรียบร้อยแล้ว",
+                            color=discord.Color.blue(),
+                        )
+                        embed.add_field(name="👤 ชื่อไอดี", value=f"`{acc['username']}`", inline=True)
+                        embed.add_field(name="💰 ราคาใหม่", value=f"**฿{float(price_val):,.2f}**", inline=True)
+                        embed.set_footer(text=f"อัปเดตโดย {message.author.name} • ซิงค์ Supabase ทันที")
+                        await message.reply(embed=embed)
+                        return
+
+            # 1.8 Smart Sale Shortcut Disambiguation:
+            # Handles:
+            #   - ขาย <ชื่อไอดี> <ราคา> / ขายแล้ว <ชื่อไอดี> <ราคา> / ขาย <ชื่อไอดี> / ขายแล้ว <ชื่อไอดี>
+            #   - <ชื่อไอดี> ขายแล้ว [<ราคา>]
+            #   - ขาย <ชื่อไอเทม> <ราคา> (ถ้าไม่พบในสต็อก บันทึกเป็นไอเทมทั่วไป)
+            is_sale_trigger = False
+            sale_target = None
+            sale_price = None
+
+            for pfx in ["ขายแล้ว ", "ขายเเล้ว ", "ขายละ ", "ขายล่ะ ", "ขาย ", "ได้ ", "รายได้ "]:
+                if lower_msg.startswith(pfx) and not lower_msg.startswith("/"):
+                    is_sale_trigger = True
+                    rem = raw_msg[len(pfx):].strip()
+                    import re
+                    m = re.search(r"\s+(\d+(?:\.\d+)?)\s*(?:บาท|thb)?$", rem, re.IGNORECASE)
+                    if m:
+                        sale_price = float(m.group(1))
+                        sale_target = rem[:m.start()].strip()
+                    else:
+                        sale_target = rem.strip()
+                    break
+
+            if not is_sale_trigger and not lower_msg.startswith("/"):
+                import re
+                m_suf = re.search(r"^(.*?)\s+(?:ขายแล้ว|ขายเเล้ว|ขายละ|ขายล่ะ)(?:\s+(\d+(?:\.\d+)?)\s*(?:บาท|thb)?)?$", raw_msg, re.IGNORECASE)
+                if m_suf:
+                    is_sale_trigger = True
+                    sale_target = m_suf.group(1).strip()
+                    if m_suf.group(2):
+                        sale_price = float(m_suf.group(2))
+
+            if is_sale_trigger and sale_target:
+                acc = self.kaitun_service.get_account(sale_target)
+                if acc:
+                    price_str = f"{sale_price:.2f}" if sale_price is not None else None
+                    self.kaitun_service.update_account(
+                        username=acc["username"],
+                        sale_status="sold",
+                        price=price_str,
+                        actor=message.author.name,
+                    )
+                    acc_updated = self.kaitun_service.get_account(acc["username"]) or acc
+                    p_disp = acc_updated.get("price") or (f"฿{sale_price:,.2f}" if sale_price is not None else "ไม่ระบุ")
+                    embed = discord.Embed(
+                        title=f"🎉 บันทึกการขายไอดีในสต็อกสำเร็จ: {acc['username']}",
+                        description="ปรับสถานะเป็น 'ขายแล้ว (Sold)' และซิงค์เข้าสู่ระบบบัญชีและ #web-orders ทันที",
+                        color=discord.Color.red(),
+                    )
+                    embed.add_field(name="👤 ชื่อไอดี (Username)", value=f"`{acc['username']}`", inline=True)
+                    embed.add_field(name="🏷️ สถานะ", value="🔴 **ขายแล้ว (Sold)**", inline=True)
+                    embed.add_field(name="💰 ราคาขาย (รายได้)", value=f"**{p_disp}**", inline=True)
+                    if acc.get("farmed_maps"):
+                        embed.add_field(name="🗺️ แมพ", value=f"`{acc['farmed_maps']}`", inline=True)
+                    embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
+                    await message.reply(embed=embed)
+                    return
+                else:
+                    if sale_price is not None and sale_price > 0:
+                        res = self.db.add_item_sale(title=sale_target, amount=sale_price, user_id=message.author.id)
+                        if res:
+                            embed = discord.Embed(
+                                title=f"🎉 บันทึกการขายไอเทม/บริการสำเร็จ: {sale_target}",
+                                description="บันทึกยอดขายเข้าระบบบัญชีร้าน และเพิ่มกำไรสุทธิเรียบร้อยแล้ว",
+                                color=discord.Color.green(),
+                            )
+                            embed.add_field(name="📦 รายการ", value=f"**{sale_target}**", inline=True)
+                            embed.add_field(name="💰 ราคาขาย (รายได้)", value=f"**฿{sale_price:,.2f}**", inline=True)
+                            embed.set_footer(text=f"บันทึกโดย {message.author.name} • ซิงค์กับระบบบัญชีและ #web-orders ทันที")
+                            await message.reply(embed=embed)
+                            return
+                    else:
+                        await message.reply(
+                            f"❌ ไม่พบไอดี `{sale_target}` ในคลังสต็อก\n"
+                            f"*(หากต้องการบันทึกการขายสินค้าทั่วไป กรุณาระบุราคา เช่น `ขาย {sale_target} 100`)*"
+                        )
+                        return
 
             # Fast Chat Shortcut for Viewing Accounting / Financial Summary: บัญชี, สรุปบัญชี, กำไร, accounting, รายรับรายจ่าย
             if lower_msg in [
@@ -3110,35 +3460,6 @@ class KeyValidationBot(discord.Client):
                     await message.reply(embed=embed)
                     return
 
-            # 4.5 Direct Sale Status Shortcuts: ขายแล้ว <username> / ขาย <username> / พร้อมขาย <username>
-            if lower_msg.startswith("ขายแล้ว ") or lower_msg.startswith("ขาย "):
-                parts = raw_msg.split()
-                if len(parts) >= 2:
-                    target_u = parts[1].strip()
-                    acc = self.kaitun_service.get_account(target_u)
-                    if not acc:
-                        await message.reply(f"❌ ไม่พบไอดี `{target_u}` ในคลังสต็อก")
-                        return
-
-                    self.kaitun_service.update_account(
-                        username=target_u,
-                        sale_status="sold",
-                        actor=message.author.name,
-                    )
-                    acc_updated = self.kaitun_service.get_account(target_u) or acc
-                    embed = discord.Embed(
-                        title=f"✅ ปรับสถานะไอดีเป็น 'ขายแล้ว' เรียบร้อย: {target_u}",
-                        description=f"อัปเดตสถานะในระบบและซิงค์ข้อมูลกับหน้าเว็บเรียบร้อยแล้ว",
-                        color=discord.Color.red(),
-                    )
-                    embed.add_field(name="🏷️ สถานะ", value="🔴 **ขายแล้ว (Sold)**", inline=True)
-                    if acc_updated.get("price"):
-                        embed.add_field(name="💰 ราคาขาย", value=f"`{acc_updated['price']}`", inline=True)
-                    if acc_updated.get("farmed_maps"):
-                        embed.add_field(name="🗺️ แมพ", value=f"`{acc_updated['farmed_maps']}`", inline=True)
-                    embed.set_footer(text=f"อัปเดตโดย {message.author.name} • ซิงค์กับหน้าเว็บทันที")
-                    await message.reply(embed=embed)
-                    return
 
             if lower_msg.startswith("พร้อมขาย ") or lower_msg.startswith("ยังไม่ขาย "):
                 parts = raw_msg.split()
@@ -3555,6 +3876,7 @@ class KeyValidationBot(discord.Client):
 
         if self.user:
             logger.info("Bot logged in successfully as %s (ID: %s)", self.user.name, self.user.id)
+            self._maybe_send_daily_health_check()
 
 
 def create_bot(

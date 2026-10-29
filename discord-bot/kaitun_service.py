@@ -64,8 +64,50 @@ def generate_roblox_username(prefix: str = "kiZortShop", target_length: int = 15
     return username[:20]
 
 
-def parse_account_line(line: str) -> Optional[Tuple[str, str, Optional[str]]]:
-    """แยกข้อมูล <username>|<password>|<cookie> หรือคั่นด้วยโคลอน/แท็บ"""
+class ParsedAccountLine(tuple):
+    """
+    Subclass of tuple (username, password, cookie) for backward compatibility,
+    with additional attributes 'price' and 'details'.
+    """
+    def __new__(
+        cls,
+        username: str,
+        password: str,
+        cookie: Optional[str] = None,
+        price: Optional[str] = None,
+        details: Optional[str] = None,
+    ):
+        return super().__new__(cls, (username, password, cookie))
+
+    def __init__(
+        self,
+        username: str,
+        password: str,
+        cookie: Optional[str] = None,
+        price: Optional[str] = None,
+        details: Optional[str] = None,
+    ):
+        self.username = username
+        self.password = password
+        self.cookie = cookie
+        self.price = price
+        self.details = details
+
+
+def _is_price_token(token: str) -> bool:
+    t = token.strip()
+    if not t:
+        return False
+    t_clean = t.replace("฿", "").replace("บาท", "").replace(".-", "").replace(",", "").strip()
+    try:
+        float(t_clean)
+        return True
+    except ValueError:
+        return False
+
+
+def parse_account_line(line: str) -> Optional[ParsedAccountLine]:
+    """แยกข้อมูล <username>|<password>|<cookie/price>|<details> หรือคั่นด้วยโคลอน/แท็บ"""
     cleaned = line.strip()
     if not cleaned:
         return None
@@ -83,8 +125,42 @@ def parse_account_line(line: str) -> Optional[Tuple[str, str, Optional[str]]]:
     if len(parts) >= 2:
         username = parts[0]
         password = parts[1]
-        cookie = parts[2] if len(parts) >= 3 and parts[2] else None
-        return username, password, cookie
+        cookie = None
+        price = None
+        details = None
+
+        if len(parts) == 2:
+            return ParsedAccountLine(username, password)
+
+        if len(parts) == 3:
+            p2 = parts[2]
+            if _is_price_token(p2):
+                price = p2
+            else:
+                cookie = p2 if p2 not in ("-", "_", "none", "null") else None
+            return ParsedAccountLine(username, password, cookie=cookie, price=price)
+
+        if len(parts) == 4:
+            p2, p3 = parts[2], parts[3]
+            if _is_price_token(p2):
+                price = p2
+                details = p3
+            elif _is_price_token(p3):
+                cookie = p2 if p2 not in ("-", "_", "none", "null") else None
+                price = p3
+            else:
+                cookie = p2 if p2 not in ("-", "_", "none", "null") else None
+                details = p3
+            return ParsedAccountLine(username, password, cookie=cookie, price=price, details=details)
+
+        # len(parts) >= 5
+        cookie = parts[2] if parts[2] not in ("-", "_", "none", "null") else None
+        if _is_price_token(parts[3]):
+            price = parts[3]
+            details = " | ".join(parts[4:])
+        else:
+            details = " | ".join(parts[3:])
+        return ParsedAccountLine(username, password, cookie=cookie, price=price, details=details)
 
     return None
 
@@ -167,12 +243,16 @@ class KaitunService:
                 continue
 
             username, password, cookie = parsed
+            price = getattr(parsed, "price", None)
+            details = getattr(parsed, "details", None)
             status, old_acc = self.database.add_kaitun_account_smart(
                 username=username,
                 password=password,
                 cookie=cookie,
                 raw_line=line,
                 user_id=user_id,
+                price=price,
+                details=details,
             )
             if status == "created":
                 success_count += 1
