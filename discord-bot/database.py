@@ -846,36 +846,10 @@ class Database:
         details: Optional[str] = None,
         sale_status: Optional[str] = None,
         price: Optional[str] = None,
+        actor: Optional[str] = None,
     ) -> bool:
         if self._is_test_env:
             return self._local_update(username, password, farmed_maps, details, sale_status, price)
-
-        # 1. Prefer Backend API for marking as sold
-        if sale_status == "sold" and BACKEND_API_URL and BOT_API_KEY:
-            try:
-                resp = requests.post(
-                    f"{BACKEND_API_URL}/api/v1/bot/kaitun/sold",
-                    headers={
-                        "Content-Type": "application/json",
-                        "x-bot-api-key": BOT_API_KEY,
-                    },
-                    json={"username": username, "actor": "Discord Python Bot"},
-                    timeout=5,
-                )
-                if resp.status_code in (200, 201):
-                    try:
-                        self._local_update(username, password, farmed_maps, details, sale_status, price)
-                    except Exception:
-                        pass
-                    return True
-                else:
-                    logger.warning(
-                        "Backend API sold returned HTTP %s: %s, falling back to direct Supabase REST",
-                        resp.status_code,
-                        resp.text,
-                    )
-            except Exception as e:
-                logger.error("Failed to mark sold via Backend API: %s, falling back to direct Supabase REST", e)
 
         acc = self.get_kaitun_account(username)
         if not acc:
@@ -917,6 +891,101 @@ class Database:
                     self._local_update(username, password, farmed_maps, details, sale_status, price)
                 except Exception:
                     pass
+
+                # Also inform backend if configured (short timeout so it never blocks)
+                if sale_status == "sold" and BACKEND_API_URL and BOT_API_KEY:
+                    try:
+                        requests.post(
+                            f"{BACKEND_API_URL}/api/v1/bot/kaitun/sold",
+                            headers={
+                                "Content-Type": "application/json",
+                                "x-bot-api-key": BOT_API_KEY,
+                            },
+                            json={"username": username, "actor": actor or "Discord Bot"},
+                            timeout=1.5,
+                        )
+                    except Exception as e:
+                        logger.warning("Could not ping backend /sold: %s", e)
+
+                # Webhook Notifications
+                final_maps = farmed_maps if farmed_maps is not None else acc.get("farmed_maps", "")
+                final_details = details if details is not None else acc.get("details", "")
+                raw_price = price if price is not None else acc.get("price", "")
+                price_str = str(raw_price).strip() if raw_price is not None else ""
+                price_display = f"฿{price_str}" if price_str and not price_str.startswith("฿") and not "บาท" in price_str else (price_str or "ไม่ระบุ")
+
+                effective_status = sale_status if sale_status is not None else acc.get("sale_status")
+                is_sold = (effective_status == "sold")
+
+                if is_sold:
+                    # 1. Broadcast sale to #web-orders
+                    try:
+                        embed_order = {
+                            "title": f"🎉 [ขายไอดีสำเร็จ] {username}",
+                            "description": "บันทึกการขายไอดีไก่ตันออกจากคลังสต็อก และคำนวณเข้าสู่ระบบบัญชีเรียบร้อยแล้ว",
+                            "color": 0x10B981,
+                            "fields": [
+                                {"name": "👤 บัญชี (Username)", "value": f"**{username}**", "inline": True},
+                                {"name": "💰 ราคาขาย (รายได้)", "value": f"**{price_display}**", "inline": True},
+                                {"name": "🏷️ สถานะ", "value": "🔴 **ขายแล้ว (Sold)**", "inline": True},
+                            ],
+                            "footer": {"text": f"ดำเนินการโดย {actor or 'Staff'} • ซิงค์กับระบบบัญชีและ #web-orders ทันที"},
+                        }
+                        if final_maps:
+                            embed_order["fields"].append({"name": "🗺️ แมพที่ฟาร์ม", "value": f"`{final_maps}`", "inline": True})
+                        if final_details:
+                            embed_order["fields"].append({"name": "📝 รายละเอียดของในไอดี", "value": f"```{final_details[:300]}```", "inline": False})
+
+                        self.send_webhook("orders", embed_order)
+                    except Exception as e:
+                        logger.warning("Failed to broadcast order webhook: %s", e)
+
+                    # 2. Broadcast sold audit to #web-stock-logs
+                    try:
+                        embed_stock = {
+                            "title": f"📦 [อัปเดตสต็อกไอดี: ขายแล้ว] {username}",
+                            "description": "บันทึกสถานะไอดีเป็น 'ขายแล้ว (Sold)' และตัดออกจากสต็อกพร้อมขาย",
+                            "color": 0xEF4444,
+                            "fields": [
+                                {"name": "👤 บัญชี", "value": f"`{username}`", "inline": True},
+                                {"name": "🏷️ สถานะการขาย", "value": "🔴 **ขายแล้ว (Sold)**", "inline": True},
+                                {"name": "💰 ราคา", "value": f"`{price_display}`", "inline": True},
+                            ],
+                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ Supabase เรียบร้อย"},
+                        }
+                        if final_maps:
+                            embed_stock["fields"].append({"name": "🗺️ แมพ", "value": f"`{final_maps}`", "inline": True})
+                        if final_details:
+                            embed_stock["fields"].append({"name": "📝 รายละเอียด", "value": f"```{final_details[:300]}```", "inline": False})
+
+                        self.send_webhook("stocks", embed_stock)
+                    except Exception as e:
+                        logger.warning("Failed to broadcast stock sold webhook: %s", e)
+
+                else:
+                    # Broadcast normal stock update audit to #web-stock-logs
+                    try:
+                        embed_stock = {
+                            "title": f"📦 [อัปเดตข้อมูลไอดี] {username}",
+                            "description": "มีการแก้ไขข้อมูลไอดีในคลังสต็อก",
+                            "color": 0x3B82F6,
+                            "fields": [
+                                {"name": "👤 บัญชี", "value": f"`{username}`", "inline": True},
+                                {"name": "🏷️ สถานะการขาย", "value": "🟢 **พร้อมขาย (Available)**", "inline": True},
+                            ],
+                            "footer": {"text": f"อัปเดตโดย {actor or 'Staff'} • ซิงค์ Supabase เรียบร้อย"},
+                        }
+                        if price_display and price_display != "ไม่ระบุ":
+                            embed_stock["fields"].append({"name": "💰 ราคา", "value": f"`{price_display}`", "inline": True})
+                        if final_maps:
+                            embed_stock["fields"].append({"name": "🗺️ แมพ", "value": f"`{final_maps}`", "inline": True})
+                        if final_details:
+                            embed_stock["fields"].append({"name": "📝 รายละเอียด", "value": f"```{final_details[:300]}```", "inline": False})
+
+                        self.send_webhook("stocks", embed_stock)
+                    except Exception as e:
+                        logger.warning("Failed to broadcast stock update webhook: %s", e)
+
             return success
         except Exception as e:
             logger.error("Error updating account on Supabase: %s", e)

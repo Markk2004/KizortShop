@@ -78,3 +78,65 @@ def test_add_expense_payload_includes_uuid(tmp_path, monkeypatch):
     assert captured_payload["amount"] == 150.0
     assert captured_payload["category"] == "SCRIPT"
     db.close()
+
+
+def test_update_kaitun_account_broadcasts_webhooks(tmp_path, monkeypatch):
+    import requests
+    db_file = tmp_path / "test.sqlite3"
+    db = Database(str(db_file))
+    # Emulate non-test env so Supabase branch runs
+    db._is_test_env = False
+
+    webhook_calls = []
+
+    def mock_get(url, headers=None, timeout=None):
+        class MockResp:
+            status_code = 200
+            def json(self):
+                if "WebhookChannelConfig" in url:
+                    return [{"webhookUrl": "https://discord.com/mock-webhook"}]
+                return [{
+                    "id": "mock-acc-123",
+                    "username": "TestSoldUser",
+                    "status": "AVAILABLE",
+                    "credentials": "TestSoldUser:secret",
+                    "farmedMaps": "Blox Fruits",
+                    "details": "เวลตัน",
+                    "sellingPriceText": "100",
+                }]
+        return MockResp()
+
+    def mock_patch(url, headers=None, data=None, timeout=None):
+        class MockResp:
+            status_code = 200
+        return MockResp()
+
+    def mock_post(url, headers=None, data=None, json=None, timeout=None):
+        class MockResp:
+            status_code = 204
+        webhook_calls.append({"url": url, "payload": json})
+        return MockResp()
+
+    monkeypatch.setattr(requests, "get", mock_get)
+    monkeypatch.setattr(requests, "patch", mock_patch)
+    monkeypatch.setattr(requests, "post", mock_post)
+
+    ok = db.update_kaitun_account(
+        username="TestSoldUser",
+        sale_status="sold",
+        price="150",
+        farmed_maps="Blox Fruits",
+        details="เวลตัน 2550",
+        actor="AdminUser",
+    )
+    assert ok is True
+    # Should have sent to orders and stocks
+    channel_keys = [
+        c["payload"]["embeds"][0]["title"]
+        for c in webhook_calls
+        if c.get("payload") and isinstance(c["payload"], dict) and "embeds" in c["payload"]
+    ]
+    assert any("[ขายไอดีสำเร็จ]" in title for title in channel_keys)
+    assert any("[อัปเดตสต็อกไอดี: ขายแล้ว]" in title for title in channel_keys)
+
+    db.close()

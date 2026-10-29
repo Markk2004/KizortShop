@@ -490,6 +490,7 @@ class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเ
             details=self.details_input.value.strip(),
             sale_status=sale_status,
             price=self.price_input.value.strip(),
+            actor=interaction.user.name,
         )
 
         acc_updated = self.kaitun_service.get_account(u) or acc
@@ -1976,6 +1977,7 @@ class KeyValidationBot(discord.Client):
             ok = self.kaitun_service.update_account(
                 username=username.strip(),
                 password=new_password.strip(),
+                actor=interaction.user.name,
             )
             if ok:
                 embed = discord.Embed(
@@ -2976,6 +2978,7 @@ class KeyValidationBot(discord.Client):
                     self.kaitun_service.update_account(
                         username=target_u,
                         sale_status="sold",
+                        actor=message.author.name,
                     )
                     acc_updated = self.kaitun_service.get_account(target_u) or acc
                     embed = discord.Embed(
@@ -3004,6 +3007,7 @@ class KeyValidationBot(discord.Client):
                     self.kaitun_service.update_account(
                         username=target_u,
                         sale_status="unsold",
+                        actor=message.author.name,
                     )
                     embed = discord.Embed(
                         title=f"✅ ปรับสถานะไอดีกลับเป็น 'พร้อมขาย' เรียบร้อย: {target_u}",
@@ -3069,6 +3073,7 @@ class KeyValidationBot(discord.Client):
                         details=details,
                         sale_status=sale_status,
                         price=price,
+                        actor=message.author.name,
                     )
                     if not ok:
                         await message.reply(
@@ -3154,7 +3159,7 @@ class KeyValidationBot(discord.Client):
                     target_u = m_user.group(0)
                     acc = self.kaitun_service.get_account(target_u)
                     if acc:
-                        self.kaitun_service.update_account(username=target_u, sale_status="sold")
+                        self.kaitun_service.update_account(username=target_u, sale_status="sold", actor=message.author.name)
                     else:
                         # Account didn't exist yet: extract password if provided with pipe
                         password = "Unknown"

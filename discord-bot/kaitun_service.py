@@ -223,6 +223,7 @@ class KaitunService:
         details: Optional[str] = None,
         sale_status: Optional[str] = None,
         price: Optional[str] = None,
+        actor: Optional[str] = None,
     ) -> bool:
         """อัปเดตข้อมูลรายละเอียดของไอดี (รหัสผ่าน, แมพที่ฟาร์ม, รายละเอียดของ, สถานะการขาย, ราคา)"""
         return self.database.update_kaitun_account(
@@ -232,6 +233,7 @@ class KaitunService:
             details=details,
             sale_status=sale_status,
             price=price,
+            actor=actor,
         )
 
     def list_accounts(
