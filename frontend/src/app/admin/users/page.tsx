@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import {
   CheckCircle2,
   Search,
@@ -15,166 +15,28 @@ import {
   verifySearchInput,
   type SearchFieldMode,
 } from "@/features/admin/components/AdminSmartFilterBar";
-
-interface StoreUser {
-  id: string;
-  username: string;
-  email: string;
-  role: "MEMBER" | "ADMIN";
-  tier: "Standard" | "VIP" | "Diamond";
-  balance: number;
-  status: "ACTIVE" | "BANNED";
-  registeredAt: string;
-  totalOrders: number;
-}
-
-const initialUsers: StoreUser[] = [
-  {
-    id: "usr_001",
-    username: "Sal***",
-    email: "sal***@kaizort.store",
-    role: "ADMIN",
-    tier: "Diamond",
-    balance: 2500,
-    status: "ACTIVE",
-    registeredAt: "2026-09-01",
-    totalOrders: 48,
-  },
-  {
-    id: "usr_002",
-    username: "dark_knight99",
-    email: "dark@gamer.com",
-    role: "MEMBER",
-    tier: "VIP",
-    balance: 1420,
-    status: "ACTIVE",
-    registeredAt: "2026-09-15",
-    totalOrders: 19,
-  },
-  {
-    id: "usr_003",
-    username: "shadow_player",
-    email: "shadow@roblox.in.th",
-    role: "MEMBER",
-    tier: "Standard",
-    balance: 95,
-    status: "ACTIVE",
-    registeredAt: "2026-10-02",
-    totalOrders: 4,
-  },
-  {
-    id: "usr_004",
-    username: "bloxfruits_king",
-    email: "king@fruitgame.com",
-    role: "MEMBER",
-    tier: "VIP",
-    balance: 350,
-    status: "ACTIVE",
-    registeredAt: "2026-10-10",
-    totalOrders: 11,
-  },
-  {
-    id: "usr_005",
-    username: "suspicious_bot",
-    email: "bot@fake.net",
-    role: "MEMBER",
-    tier: "Standard",
-    balance: 0,
-    status: "BANNED",
-    registeredAt: "2026-10-14",
-    totalOrders: 0,
-  },
-  {
-    id: "usr_006",
-    username: "kitsune_slayer",
-    email: "kitsune@kaizort.gg",
-    role: "MEMBER",
-    tier: "Diamond",
-    balance: 3200,
-    status: "ACTIVE",
-    registeredAt: "2026-10-15",
-    totalOrders: 27,
-  },
-  {
-    id: "usr_007",
-    username: "zoro_three_sword",
-    email: "zoro@grandline.io",
-    role: "MEMBER",
-    tier: "VIP",
-    balance: 680,
-    status: "ACTIVE",
-    registeredAt: "2026-10-15",
-    totalOrders: 9,
-  },
-  {
-    id: "usr_008",
-    username: "nova_striker",
-    email: "nova@cybermail.co",
-    role: "MEMBER",
-    tier: "Standard",
-    balance: 150,
-    status: "ACTIVE",
-    registeredAt: "2026-10-16",
-    totalOrders: 3,
-  },
-  {
-    id: "usr_009",
-    username: "vanguard_ops",
-    email: "ops@kaizort.store",
-    role: "ADMIN",
-    tier: "Diamond",
-    balance: 5000,
-    status: "ACTIVE",
-    registeredAt: "2026-09-05",
-    totalOrders: 62,
-  },
-  {
-    id: "usr_010",
-    username: "anime_defender_th",
-    email: "defender@roblox.th",
-    role: "MEMBER",
-    tier: "VIP",
-    balance: 890,
-    status: "ACTIVE",
-    registeredAt: "2026-10-17",
-    totalOrders: 14,
-  },
-  {
-    id: "usr_011",
-    username: "slip_faker_99",
-    email: "scam99@temp.org",
-    role: "MEMBER",
-    tier: "Standard",
-    balance: 0,
-    status: "BANNED",
-    registeredAt: "2026-10-17",
-    totalOrders: 1,
-  },
-  {
-    id: "usr_012",
-    username: "luna_eclipse",
-    email: "luna@moonlight.gg",
-    role: "MEMBER",
-    tier: "Standard",
-    balance: 420,
-    status: "ACTIVE",
-    registeredAt: "2026-10-18",
-    totalOrders: 6,
-  },
-];
+import {
+  fetchAdminUsers,
+  adjustUserBalance,
+  updateUserRole,
+  updateUserStatus,
+  createAdminUser,
+  type AdminUserApiResponse,
+} from "@/features/admin/services/admin-api";
 
 export default function AdminUsersPage() {
-  const [users, setUsers] = useState<StoreUser[]>(initialUsers);
+  const [users, setUsers] = useState<AdminUserApiResponse[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [roleFilter, setRoleFilter] = useState<"ALL" | "MEMBER" | "ADMIN">("ALL");
   const [statusFilter, setStatusFilter] = useState<"ALL" | "ACTIVE" | "BANNED">("ALL");
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(5);
+  const [pageSize, setPageSize] = useState<number>(10);
   const [notification, setNotification] = useState<string | null>(null);
 
   // Balance adjustment modal state
-  const [balanceModalUser, setBalanceModalUser] = useState<StoreUser | null>(null);
+  const [balanceModalUser, setBalanceModalUser] = useState<AdminUserApiResponse | null>(null);
   const [adjustAmount, setAdjustAmount] = useState<string>("");
   const [adjustReason, setAdjustReason] = useState<string>("เติมเงินชดเชยจากแอดมิน");
 
@@ -186,33 +48,55 @@ export default function AdminUsersPage() {
   const [newRole, setNewRole] = useState<"MEMBER" | "ADMIN">("MEMBER");
   const [newTier, setNewTier] = useState<"Standard" | "VIP" | "Diamond">("Standard");
 
+  const loadUsers = async () => {
+    try {
+      setLoading(true);
+      const res = await fetchAdminUsers();
+      setUsers(res);
+    } catch (err) {
+      console.warn("Failed to load users:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadUsers();
+  }, []);
+
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 4000);
   };
 
   // Toggle user ban status
-  const handleToggleBan = (user: StoreUser) => {
+  const handleToggleBan = async (user: AdminUserApiResponse) => {
     const nextStatus = user.status === "ACTIVE" ? "BANNED" : "ACTIVE";
     setUsers((prev) =>
       prev.map((u) => (u.id === user.id ? { ...u, status: nextStatus } : u)),
     );
+    try {
+      await updateUserStatus(user.id, nextStatus);
+    } catch {}
     showNotification(
       `อัปเดตสถานะ ${user.username}: ${nextStatus === "BANNED" ? "ระงับบัญชีแล้ว" : "ปลดการระงับแล้ว"}`,
     );
   };
 
   // Toggle user role between MEMBER and ADMIN
-  const handleToggleRole = (user: StoreUser) => {
+  const handleToggleRole = async (user: AdminUserApiResponse) => {
     const nextRole = user.role === "MEMBER" ? "ADMIN" : "MEMBER";
     setUsers((prev) =>
       prev.map((u) => (u.id === user.id ? { ...u, role: nextRole } : u)),
     );
+    try {
+      await updateUserRole(user.id, nextRole);
+    } catch {}
     showNotification(`ปรับเปลี่ยนสิทธิ์ของ ${user.username} เป็น ${nextRole}`);
   };
 
   // Save balance adjustment
-  const handleSaveBalance = (e: React.FormEvent) => {
+  const handleSaveBalance = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!balanceModalUser) return;
 
@@ -232,6 +116,10 @@ export default function AdminUsersPage() {
       }),
     );
 
+    try {
+      await adjustUserBalance(balanceModalUser.id, delta, adjustReason);
+    } catch {}
+
     showNotification(
       `ปรับยอดเงินของ ${balanceModalUser.username} ${delta > 0 ? `+${delta}` : delta} บาท สำเร็จ`,
     );
@@ -240,31 +128,35 @@ export default function AdminUsersPage() {
   };
 
   // Add new user
-  const handleAddUser = (e: React.FormEvent) => {
+  const handleAddUser = async (e: React.FormEvent) => {
     e.preventDefault();
     if (!newUsername.trim() || !newEmail.trim()) {
       showNotification("กรุณากรอกชื่อผู้ใช้และอีเมล");
       return;
     }
 
-    const created: StoreUser = {
-      id: `usr_${Date.now()}`,
-      username: newUsername.trim(),
-      email: newEmail.trim(),
-      balance: parseFloat(newBalance) || 0,
-      role: newRole,
-      tier: newTier,
-      status: "ACTIVE",
-      registeredAt: new Date().toISOString().slice(0, 10),
-      totalOrders: 0,
-    };
+    try {
+      const createdRes = await createAdminUser({
+        username: newUsername.trim(),
+        email: newEmail.trim(),
+        balance: parseFloat(newBalance) || 0,
+        role: newRole,
+        tier: newTier,
+      });
 
-    setUsers((prev) => [created, ...prev]);
-    setShowAddUserModal(false);
-    setNewUsername("");
-    setNewEmail("");
-    setNewBalance("0");
-    showNotification(`สร้างบัญชีผู้ใช้ ${created.username} เรียบร้อยแล้ว`);
+      if (createdRes?.data) {
+        setUsers((prev) => [createdRes.data, ...prev]);
+      } else {
+        await loadUsers();
+      }
+      setShowAddUserModal(false);
+      setNewUsername("");
+      setNewEmail("");
+      setNewBalance("0");
+      showNotification(`สร้างบัญชีผู้ใช้ ${newUsername} เรียบร้อยแล้ว`);
+    } catch (err: any) {
+      showNotification("สร้างผู้ใช้ไม่สำเร็จ: " + (err?.message || ""));
+    }
   };
 
   const verification = verifySearchInput(searchQuery, searchMode);

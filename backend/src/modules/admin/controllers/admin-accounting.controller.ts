@@ -143,9 +143,6 @@ export class AdminAccountingController {
       if (sellingPrice === 0 && item.order?.amount) {
         sellingPrice = Number(item.order.amount);
       }
-      if (sellingPrice === 0 && item.product?.price) {
-        sellingPrice = Number(item.product.price);
-      }
 
       const itemDate = item.soldAt || item.updatedAt || item.createdAt;
 
@@ -157,6 +154,9 @@ export class AdminAccountingController {
       }
 
       if (item.status === "SOLD") {
+        if (sellingPrice === 0 && item.product?.price) {
+          sellingPrice = Number(item.product.price);
+        }
         if (matchesDate) {
           soldCount++;
           grossRevenue += sellingPrice;
@@ -167,22 +167,28 @@ export class AdminAccountingController {
           mapStats[mapKey].cost += cost;
           mapStats[mapKey].profit += sellingPrice - cost;
 
+          const resolvedTitle =
+            item.farmedMaps || item.details || item.product?.title || "สินค้าไก่ตัน";
+
           filteredRecentSales.push({
             id: item.id,
             serialCode: item.serialCode,
             username: item.username || item.maskedIdentity,
-            productTitle: item.product?.title || "สินค้า",
+            productTitle: resolvedTitle,
             map: mapStats[mapKey].mapName,
             sellingPrice,
             cost,
             profit: sellingPrice - cost,
             soldAt: item.soldAt || item.updatedAt,
+            orderNumber: item.order?.orderNumber || "KZ-DIRECT",
           });
         }
       } else if (item.status === "AVAILABLE") {
         availableCount++;
         inventoryCost += cost;
-        potentialRevenue += sellingPrice;
+        if (sellingPrice > 0) {
+          potentialRevenue += sellingPrice;
+        }
         mapStats[mapKey].availableCount++;
       } else if (item.status === "CLAIMED_DEFECTIVE") {
         if (matchesDate) {
@@ -190,6 +196,13 @@ export class AdminAccountingController {
         }
       }
     }
+
+    const unpricedAvailableCount = stocks.filter(
+      (s) => s.status === "AVAILABLE" && (!s.sellingPriceText || !parseFloat(s.sellingPriceText.replace(/[^0-9.]/g, ""))),
+    ).length;
+    const pricedAvailableCount = availableCount - unpricedAvailableCount;
+    const avgSoldPrice = soldCount > 0 ? Number((grossRevenue / soldCount).toFixed(1)) : 0;
+    const estimatedInventoryValue = Number((avgSoldPrice * unpricedAvailableCount).toFixed(1));
 
     const operatingExpenses = expenses.reduce((sum, exp) => sum + Number(exp.amount), 0);
     const netProfit = grossRevenue - productCost - defectLoss - operatingExpenses;
@@ -207,6 +220,10 @@ export class AdminAccountingController {
         profitMargin,
         inventoryCost,
         potentialRevenue,
+        pricedAvailableCount,
+        unpricedAvailableCount,
+        avgSoldPrice,
+        estimatedInventoryValue,
         soldCount,
         availableCount,
         totalExpensesCount: expenses.length,

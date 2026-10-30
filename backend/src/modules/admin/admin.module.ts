@@ -4,6 +4,8 @@ import { AdminCategoriesController } from "./controllers/admin-categories.contro
 import { AdminProductsController } from "./controllers/admin-products.controller";
 import { AdminStocksController } from "./controllers/admin-stocks.controller";
 import { AdminAccountingController } from "./controllers/admin-accounting.controller";
+import { AdminUsersController } from "./controllers/admin-users.controller";
+import { AdminOrdersController } from "./controllers/admin-orders.controller";
 
 @Module({
   controllers: [
@@ -12,6 +14,8 @@ import { AdminAccountingController } from "./controllers/admin-accounting.contro
     AdminProductsController,
     AdminStocksController,
     AdminAccountingController,
+    AdminUsersController,
+    AdminOrdersController,
   ],
   providers: [],
   exports: [],

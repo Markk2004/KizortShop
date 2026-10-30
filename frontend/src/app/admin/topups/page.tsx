@@ -1,6 +1,6 @@
 "use client";
 
-import { useState } from "react";
+import { useState, useEffect } from "react";
 import { Check, CheckCircle2, X } from "lucide-react";
 import { AdminPagination } from "@/features/admin/components/AdminPagination";
 import {
@@ -9,151 +9,55 @@ import {
   type SearchFieldMode,
 } from "@/features/admin/components/AdminSmartFilterBar";
 import { formatBaht } from "@/lib/format";
-
-interface TopupRow {
-  id: string;
-  user: string;
-  amount: number;
-  bank: string;
-  time: string;
-  ref: string;
-  status: "PENDING_VERIFY" | "SUCCESS" | "REJECTED";
-}
-
-const initialSlips: TopupRow[] = [
-  {
-    id: "slip_551",
-    user: "player_99",
-    amount: 500,
-    bank: "KBANK // PROMPTPAY",
-    time: "10 นาทีที่แล้ว",
-    ref: "2026101800145291",
-    status: "PENDING_VERIFY",
-  },
-  {
-    id: "slip_552",
-    user: "topup_king",
-    amount: 1000,
-    bank: "SCB // PROMPTPAY",
-    time: "25 นาทีที่แล้ว",
-    ref: "2026101800148812",
-    status: "PENDING_VERIFY",
-  },
-  {
-    id: "slip_553",
-    user: "newbie_01",
-    amount: 150,
-    bank: "TRUEMONEY ANGPAO",
-    time: "38 นาทีที่แล้ว",
-    ref: "TMN-8841920194",
-    status: "PENDING_VERIFY",
-  },
-  {
-    id: "slip_554",
-    user: "zoro_fan",
-    amount: 490,
-    bank: "KBANK // PROMPTPAY",
-    time: "1 ชม. ที่แล้ว",
-    ref: "2026101800129940",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_555",
-    user: "shadow_gamer",
-    amount: 200,
-    bank: "BBL // PROMPTPAY",
-    time: "1 ชม. ที่แล้ว",
-    ref: "2026101800118832",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_556",
-    user: "kaizort_vip",
-    amount: 300,
-    bank: "KTB // PROMPTPAY",
-    time: "2 ชม. ที่แล้ว",
-    ref: "2026101800107721",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_557",
-    user: "dark_knight99",
-    amount: 1500,
-    bank: "SCB // PROMPTPAY",
-    time: "3 ชม. ที่แล้ว",
-    ref: "2026101800095510",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_558",
-    user: "suspicious_bot",
-    amount: 2000,
-    bank: "KBANK // MANUAL",
-    time: "4 ชม. ที่แล้ว",
-    ref: "DUP-202610180001",
-    status: "REJECTED",
-  },
-  {
-    id: "slip_559",
-    user: "luna_gaming",
-    amount: 250,
-    bank: "TRUEMONEY ANGPAO",
-    time: "5 ชม. ที่แล้ว",
-    ref: "TMN-7731900412",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_560",
-    user: "frost_wolf",
-    amount: 350,
-    bank: "KBANK // PROMPTPAY",
-    time: "6 ชม. ที่แล้ว",
-    ref: "2026101800064419",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_561",
-    user: "sniper_x",
-    amount: 700,
-    bank: "SCB // PROMPTPAY",
-    time: "7 ชม. ที่แล้ว",
-    ref: "2026101800051108",
-    status: "SUCCESS",
-  },
-  {
-    id: "slip_562",
-    user: "momo_chan",
-    amount: 500,
-    bank: "KBANK // PROMPTPAY",
-    time: "8 ชม. ที่แล้ว",
-    ref: "2026101800039981",
-    status: "SUCCESS",
-  },
-];
+import {
+  fetchAdminTopups,
+  verifyTopupTransaction,
+  type AdminTopupApiResponse,
+} from "@/features/admin/services/admin-api";
 
 export default function AdminTopupsPage() {
-  const [slips, setSlips] = useState<TopupRow[]>(initialSlips);
+  const [slips, setSlips] = useState<AdminTopupApiResponse[]>([]);
+  const [loading, setLoading] = useState(true);
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
   const [statusFilter, setStatusFilter] = useState<
     "ALL" | "PENDING_VERIFY" | "SUCCESS" | "REJECTED"
   >("ALL");
   const [currentPage, setCurrentPage] = useState<number>(1);
-  const [pageSize, setPageSize] = useState<number>(5);
+  const [pageSize, setPageSize] = useState<number>(10);
   const [notification, setNotification] = useState<string | null>(null);
+
+  const loadSlips = async () => {
+    try {
+      setLoading(true);
+      const res = await fetchAdminTopups();
+      setSlips(res);
+    } catch (err) {
+      console.warn("Failed to load topups:", err);
+    } finally {
+      setLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    loadSlips();
+  }, []);
 
   const showNotification = (msg: string) => {
     setNotification(msg);
     setTimeout(() => setNotification(null), 4000);
   };
 
-  const handleUpdateSlipStatus = (
-    slip: TopupRow,
+  const handleUpdateSlipStatus = async (
+    slip: AdminTopupApiResponse,
     newStatus: "SUCCESS" | "REJECTED",
   ) => {
     setSlips((prev) =>
       prev.map((s) => (s.id === slip.id ? { ...s, status: newStatus } : s)),
     );
+    try {
+      await verifyTopupTransaction(slip.id, newStatus);
+    } catch {}
     showNotification(
       newStatus === "SUCCESS"
         ? `อนุมัติสลิป ${slip.ref} (+${formatBaht(slip.amount)} ให้ @${slip.user})`

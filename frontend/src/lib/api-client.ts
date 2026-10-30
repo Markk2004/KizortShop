@@ -54,5 +54,5 @@ export async function apiDelete<T>(path: string, init?: RequestInit): Promise<T>
   return res.json() as Promise<T>;
 }
 
-/** When true, feature api.ts files return mock data instead of calling the backend. */
-export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS !== "false";
+/** When true, feature api.ts files return mock data instead of calling the backend. Defaults to false. */
+export const USE_MOCKS = process.env.NEXT_PUBLIC_USE_MOCKS === "true";

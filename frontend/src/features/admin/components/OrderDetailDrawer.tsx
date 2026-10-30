@@ -28,7 +28,7 @@ export interface OrderDrawerData {
   deliveredCode: string;
   decryptedCredential?: string;
   amount: number;
-  status: "COMPLETED" | "PENDING" | "REFUNDED";
+  status: "COMPLETED" | "PENDING" | "REFUNDED" | "FAILED";
   sla?: string;
   timeAgo: string;
   createdAtFull?: string;
@@ -109,6 +109,11 @@ export function OrderDetailDrawer({
               {order.status === "REFUNDED" && (
                 <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-red-500/15 text-red-400 border border-red-500/30">
                   REFUNDED
+                </span>
+              )}
+              {order.status === "FAILED" && (
+                <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-zinc-500/15 text-zinc-400 border border-zinc-500/30">
+                  FAILED
                 </span>
               )}
             </h2>

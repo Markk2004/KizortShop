@@ -32,6 +32,10 @@ interface AccountingSummary {
   profitMargin: number;
   inventoryCost: number;
   potentialRevenue: number;
+  pricedAvailableCount?: number;
+  unpricedAvailableCount?: number;
+  avgSoldPrice?: number;
+  estimatedInventoryValue?: number;
   soldCount: number;
   availableCount: number;
   totalExpensesCount: number;
@@ -238,9 +242,13 @@ export default function AdminExpensePage() {
     operatingExpenses: 0,
     defectLoss: 0,
     netProfit: 0,
-    profitMargin: 100,
+    profitMargin: 0,
     inventoryCost: 0,
     potentialRevenue: 0,
+    pricedAvailableCount: 0,
+    unpricedAvailableCount: 0,
+    avgSoldPrice: 0,
+    estimatedInventoryValue: 0,
     soldCount: 0,
     availableCount: 0,
     totalExpensesCount: 0,
@@ -451,7 +459,13 @@ export default function AdminExpensePage() {
             {formatBaht(summary.potentialRevenue)}
           </p>
           <span className="text-[11px] text-zinc-500 font-mono block">
-            พร้อมขาย {summary.availableCount} บัญชี
+            {summary.potentialRevenue === 0 && (summary.unpricedAvailableCount ?? summary.availableCount) > 0 ? (
+              <span className="text-amber-400/80">
+                ยังไม่ตั้งราคา {summary.unpricedAvailableCount ?? summary.availableCount} บัญชี (ประเมิน ~{formatBaht(summary.estimatedInventoryValue || 0)})
+              </span>
+            ) : (
+              `พร้อมขาย ${summary.availableCount} บัญชี`
+            )}
           </span>
         </div>
       </div>

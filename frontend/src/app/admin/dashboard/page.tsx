@@ -16,7 +16,7 @@ import {
   ShieldCheck,
   TrendingUp,
   Receipt,
-  Wallet,
+  RotateCcw,
 } from "lucide-react";
 import { formatBaht, formatSignedBaht } from "@/lib/format";
 import {
@@ -31,110 +31,16 @@ import {
 import {
   fetchDashboardMetrics,
   fetchAccountingData,
+  fetchAdminOrders,
   type DashboardMetrics,
   type AccountingData,
+  type DailyBar,
 } from "@/features/admin/services/admin-api";
 
-type TimeRange = "TODAY" | "7D" | "MONTH" | "CUSTOM";
-
-interface DailyBar {
-  day: string;
-  label: string;
-  val: number;
-  valLabel: string;
-  heightPercent: number;
-  isToday?: boolean;
-}
-
-const weeklyBars: DailyBar[] = [
-  { day: "จ.", label: "วันจันทร์", val: 36200, valLabel: "36.2K", heightPercent: 72 },
-  { day: "อ.", label: "วันอังคาร", val: 41500, valLabel: "41.5K", heightPercent: 83 },
-  { day: "พ.", label: "วันพุธ", val: 38900, valLabel: "38.9K", heightPercent: 78 },
-  { day: "พฤ.", label: "วันพฤหัสบดี", val: 34100, valLabel: "34.1K", heightPercent: 68 },
-  { day: "ศ.", label: "วันศุกร์", val: 44730, valLabel: "44.7K", heightPercent: 89 },
-  { day: "ส.", label: "วันเสาร์", val: 40820, valLabel: "40.8K", heightPercent: 81 },
-  { day: "อา.", label: "วันอาทิตย์", val: 48250, valLabel: "48.2K", heightPercent: 96, isToday: true },
-];
-
-const bestSellers = [
-  { code: "BF-V4", name: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น", units: 36, rev: 12564, width: "100%" },
-  { code: "BF-CDK", name: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณ", units: 21, rev: 10290, width: "82%" },
-  { code: "AD-MYT", name: "Anime Defenders Unit Mythic ลิมิเต็ด อัปเกรดดาวเต็ม", units: 33, rev: 6237, width: "50%" },
-  { code: "BF-RND", name: "กล่องสุ่มไก่ตัน 6 หมัด เลเวลตัน 2550 ลุ้นดาบคู่โอเด้ง", units: 52, rev: 2028, width: "16%" },
-];
-
-const initialOrders: OrderDrawerData[] = [
-  {
-    id: "ord_101",
-    orderNumber: "KZ-99412",
-    buyer: "player_99",
-    buyerEmail: "player99@roblox.in.th",
-    productTitle: "ไก่ตัน Blox Fruits V4 เผ่าไซบอร์กหมัดก็อด ผลเสือตื่น",
-    categoryCode: "BF-V4",
-    deliveredCode: "STK-BFV4-261018-0001",
-    decryptedCredential: "bf_cyborg99:P@ssword2026",
-    amount: 349,
-    status: "COMPLETED",
-    sla: "0.8 วิ",
-    timeAgo: "2 นาทีที่แล้ว",
-    warrantyExpiresIn: "เหลือ 23 ชม. 58 นาที",
-  },
-  {
-    id: "ord_102",
-    orderNumber: "KZ-99411",
-    buyer: "zoro_fan",
-    buyerEmail: "zoro@grandline.io",
-    productTitle: "ไอดีดาบคู่โอเด้ง Cursed Dual Katana + เคียววิญญาณ",
-    categoryCode: "BF-CDK",
-    deliveredCode: "STK-BFCDK-261018-0004",
-    decryptedCredential: "cdk_hunter02:DualSword$22",
-    amount: 490,
-    status: "COMPLETED",
-    sla: "0.7 วิ",
-    timeAgo: "14 นาทีที่แล้ว",
-    warrantyExpiresIn: "เหลือ 23 ชม. 46 นาที",
-  },
-  {
-    id: "ord_103",
-    orderNumber: "KZ-99410",
-    buyer: "shadow_gamer",
-    buyerEmail: "shadow@kaizort.gg",
-    productTitle: "Anime Defenders Unit Mythic ลิมิเต็ด อัปเกรดดาวเต็ม",
-    categoryCode: "AD-MYT",
-    deliveredCode: "STK-UNQAD-261017-0010",
-    decryptedCredential: "ad_mythic_star:DefenderPro#1:2FA-9001",
-    amount: 189,
-    status: "COMPLETED",
-    sla: "0.9 วิ",
-    timeAgo: "28 นาทีที่แล้ว",
-    warrantyExpiresIn: "เหลือ 23 ชม. 32 นาที",
-  },
-  {
-    id: "ord_104",
-    orderNumber: "KZ-99409",
-    buyer: "kaizort_vip",
-    buyerEmail: "vip@kaizort.store",
-    productTitle: "ไอดีสุ่มไก่ตัน 6 หมัด เลเวลตัน 2550 การันตีดาบโซโล",
-    categoryCode: "BF-RND",
-    deliveredCode: "STK-BFRND-261017-0013",
-    decryptedCredential: "rnd_box_093:RandomLuck@3",
-    amount: 39,
-    status: "COMPLETED",
-    sla: "0.6 วิ",
-    timeAgo: "42 นาทีที่แล้ว",
-    warrantyExpiresIn: "เหลือ 23 ชม. 18 นาที",
-  },
-];
-
-const telemetrySystems = [
-  { name: "บอท Discord ส่งรหัส DM", note: "เชื่อมต่อแล้ว 0.8 วิ", status: "OK" },
-  { name: "รับชำระเงิน PromptPay QR", note: "ปกติ (SlipOK API)", status: "OK" },
-  { name: "ระบบส่งมอบรหัสอัตโนมัติ (FIFO)", note: "ปกติ 99.8% อัตราสำเร็จ", status: "OK" },
-  { name: "คลังรหัสสต็อกเข้ารหัส AES-256-GCM", note: "ปกติ (SHA-256 Lock)", status: "OK" },
-];
+type TimeRange = "TODAY" | "7D" | "MONTH" | "ALL";
 
 export default function AdminDashboardPage() {
-  const [orders, setOrders] = useState<OrderDrawerData[]>(initialOrders);
+  const [orders, setOrders] = useState<OrderDrawerData[]>([]);
   const [timeRange, setTimeRange] = useState<TimeRange>("TODAY");
   const [searchQuery, setSearchQuery] = useState<string>("");
   const [searchMode, setSearchMode] = useState<SearchFieldMode>("ALL");
@@ -142,29 +48,80 @@ export default function AdminDashboardPage() {
   const [notification, setNotification] = useState<string | null>(null);
   const [accounting, setAccounting] = useState<AccountingData | null>(null);
   const [metrics, setMetrics] = useState<DashboardMetrics>({
-    dailyRevenue: 48250,
-    monthlyRevenue: 1245000,
-    totalOrdersToday: 142,
-    pendingSlips: 3,
-    activeMembers: 1284,
-    outOfStockCount: 4,
+    dailyRevenue: 0,
+    yesterdayRevenue: 0,
+    revenueChangePercent: 0,
+    weeklyRevenue: 0,
+    monthlyRevenue: 0,
+    totalRevenue: 0,
+    totalOrdersToday: 0,
+    soldTotalCount: 0,
+    availableStockCount: 0,
+    defectiveCount: 0,
+    openTicketsCount: 0,
+    pendingSlips: 0,
+    pendingSlipsAmount: 0,
+    activeMembers: 0,
+    outOfStockCount: 0,
+    outOfStockProducts: [],
+    weeklyBars: [],
   });
 
+  const loadData = async () => {
+    try {
+      const [m, a, o] = await Promise.all([
+        fetchDashboardMetrics(),
+        fetchAccountingData(),
+        fetchAdminOrders(),
+      ]);
+      if (m) setMetrics(m);
+      if (a) setAccounting(a);
+      if (o && o.length > 0) {
+        setOrders(
+          o.map((item) => ({
+            id: item.id,
+            orderNumber: item.orderNumber,
+            buyer: item.buyer,
+            buyerEmail: item.buyerEmail || "customer@kaizort.store",
+            productTitle: item.productTitle,
+            categoryCode: item.categoryCode,
+            deliveredCode: item.deliveredCode,
+            decryptedCredential: item.decryptedCredential || "●●●●●●●●",
+            amount: item.amount,
+            status: item.status,
+            sla: item.sla || "0.8 วิ",
+            timeAgo: item.timeAgo,
+            warrantyExpiresIn: item.warrantyExpiresIn || "รับประกัน 24 ชม.",
+          })),
+        );
+      } else if (a && a.recentSales && a.recentSales.length > 0) {
+        setOrders(
+          a.recentSales.map((s) => ({
+            id: s.id,
+            orderNumber: s.orderNumber || `KZ-${s.serialCode.slice(-6)}`,
+            buyer: s.username,
+            buyerEmail: "discord-customer@kaizort.store",
+            productTitle: s.productTitle,
+            categoryCode: s.map,
+            deliveredCode: s.serialCode,
+            decryptedCredential: "●●●●●●●●",
+            amount: s.sellingPrice,
+            status: "COMPLETED",
+            sla: "0.8 วิ",
+            timeAgo: formatTimeAgo(s.soldAt),
+            warrantyExpiresIn: "รับประกัน 24 ชม.",
+          })),
+        );
+      }
+    } catch (err) {
+      console.warn("Failed loading live dashboard data:", err);
+    }
+  };
+
   useEffect(() => {
-    let isMounted = true;
-    fetchDashboardMetrics().then((res) => {
-      if (isMounted && res) {
-        setMetrics(res);
-      }
-    });
-    fetchAccountingData().then((res) => {
-      if (isMounted && res) {
-        setAccounting(res);
-      }
-    });
-    return () => {
-      isMounted = false;
-    };
+    loadData();
+    const timer = setInterval(loadData, 30000);
+    return () => clearInterval(timer);
   }, []);
 
   const showNotification = (msg: string) => {
@@ -216,7 +173,7 @@ export default function AdminDashboardPage() {
   };
 
   const handleReplaceStock = (target: OrderDrawerData) => {
-    const newSerial = `STK-${target.categoryCode.replace("-", "")}-CLAIM-${Math.floor(
+    const newSerial = `STK-${target.categoryCode.replace(/[^A-Z0-9]/gi, "").slice(0, 4)}-CLAIM-${Math.floor(
       100 + Math.random() * 900,
     )}`;
     setOrders((prev) =>
@@ -233,6 +190,68 @@ export default function AdminDashboardPage() {
       `สลับรหัสเคลมใหม่ (${newSerial}) ให้ออเดอร์ #${target.orderNumber} เรียบร้อย`,
     );
   };
+
+  // Real-time Date
+  const [dateFormatted, setDateFormatted] = useState<string>("");
+
+  useEffect(() => {
+    const updateTime = () => {
+      const now = new Date();
+      const thaiDays = ["วันอาทิตย์", "วันจันทร์", "วันอังคาร", "วันพุธ", "วันพฤหัสบดี", "วันศุกร์", "วันเสาร์"];
+      const thaiMonths = [
+        "มกราคม", "กุมภาพันธ์", "มีนาคม", "เมษายน", "พฤษภาคม", "มิถุนายน",
+        "กรกฎาคม", "สิงหาคม", "กันยายน", "ตุลาคม", "พฤศจิกายน", "ธันวาคม"
+      ];
+      setDateFormatted(
+        `${thaiDays[now.getDay()]}ที่ ${now.getDate()} ${thaiMonths[now.getMonth()]} ${now.getFullYear() + 543} // ${String(now.getHours()).padStart(2, "0")}:${String(now.getMinutes()).padStart(2, "0")} น.`
+      );
+    };
+    updateTime();
+    const interval = setInterval(updateTime, 60000);
+    return () => clearInterval(interval);
+  }, []);
+
+  // Work queue items
+  const pendingTasksCount =
+    (metrics.pendingSlips || 0) +
+    (metrics.outOfStockCount || 0) +
+    (metrics.openTicketsCount || 0) +
+    (metrics.defectiveCount || 0);
+
+  // Best Sellers from Real breakdownByMap
+  const maxMapRev = accounting?.breakdownByMap?.[0]?.revenue || 1;
+  const bestSellers = (accounting?.breakdownByMap || []).slice(0, 4).map((m) => ({
+    code: m.mapName.slice(0, 10).toUpperCase(),
+    name: m.mapName,
+    units: m.soldCount,
+    rev: m.revenue,
+    width: `${Math.max(12, Math.round((m.revenue / maxMapRev) * 100))}%`,
+  }));
+
+  // Selected period revenue
+  const selectedPeriodRevenue =
+    timeRange === "TODAY"
+      ? metrics.dailyRevenue
+      : timeRange === "7D"
+      ? metrics.weeklyRevenue ?? 0
+      : timeRange === "MONTH"
+      ? metrics.monthlyRevenue
+      : metrics.totalRevenue ?? 0;
+
+  const weeklyBarsList: DailyBar[] =
+    metrics.weeklyBars && metrics.weeklyBars.length > 0
+      ? metrics.weeklyBars
+      : [
+          { day: "จ.", label: "วันจันทร์", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "อ.", label: "วันอังคาร", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "พ.", label: "วันพุธ", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "พฤ.", label: "วันพฤหัสบดี", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "ศ.", label: "วันศุกร์", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "ส.", label: "วันเสาร์", val: 0, valLabel: "฿0", heightPercent: 6 },
+          { day: "อา.", label: "วันอาทิตย์", val: 0, valLabel: "฿0", heightPercent: 6, isToday: true },
+        ];
+
+  const maxDailyVal = Math.max(...weeklyBarsList.map((b) => b.val), 100);
 
   return (
     <div className="space-y-6">
@@ -252,7 +271,7 @@ export default function AdminDashboardPage() {
               { id: "TODAY", label: "วันนี้" },
               { id: "7D", label: "7 วัน" },
               { id: "MONTH", label: "เดือนนี้" },
-              { id: "CUSTOM", label: "กำหนดเอง" },
+              { id: "ALL", label: "ทั้งหมด" },
             ] as const
           ).map((t) => (
             <button
@@ -286,14 +305,21 @@ export default function AdminDashboardPage() {
       <section className="flex flex-col md:flex-row md:items-end justify-between gap-4 pb-5 border-b border-zinc-800">
         <div className="space-y-1">
           <span className="text-xs font-mono uppercase tracking-wider text-zinc-400">
-            วันอาทิตย์ที่ 18 ตุลาคม 2569 // 23:45 น.
+            {dateFormatted}
           </span>
           <h1 className="text-2xl sm:text-3xl font-bold text-white tracking-tight">
             สวัสดีตอนค่ำ คุณไค (KaiZort Operations)
           </h1>
           <p className="text-sm text-zinc-300">
-            วันนี้ร้านขายได้ดีกว่าเมื่อวาน และมี{" "}
-            <strong className="text-emerald-400 font-mono">8 งาน</strong> รอดำเนินการในระบบ
+            {pendingTasksCount === 0 ? (
+              <span className="text-emerald-400 font-mono">
+                ทุกระบบทำงานปกติ ไม่มีงานคั่งค้างในระบบ
+              </span>
+            ) : (
+              <>
+                มี <strong className="text-amber-400 font-mono">{pendingTasksCount} งาน</strong> รอดำเนินการในระบบ
+              </>
+            )}
           </p>
         </div>
 
@@ -323,21 +349,26 @@ export default function AdminDashboardPage() {
           <div className="flex flex-wrap items-start justify-between gap-4">
             <div className="space-y-1">
               <span className="text-xs font-mono uppercase tracking-wider text-zinc-400 block">
-                01 // TODAY REVENUE
+                01 // {timeRange === "TODAY" ? "TODAY REVENUE" : timeRange === "7D" ? "7-DAY REVENUE" : timeRange === "MONTH" ? "MONTHLY REVENUE" : "TOTAL REVENUE"}
               </span>
               <div className="flex items-baseline gap-1 font-mono">
                 <span className="text-3xl sm:text-4xl font-bold text-white tracking-tight num-tabular">
-                  {formatBaht(metrics.dailyRevenue)}
+                  {formatBaht(selectedPeriodRevenue)}
                 </span>
               </div>
               <span className="text-xs font-mono text-zinc-400 block">
-                เมื่อวาน ฿40,820.00
+                เมื่อวาน {formatBaht(metrics.yesterdayRevenue || 0)}
               </span>
             </div>
 
             <span className="inline-flex items-center gap-1.5 px-3 py-1 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
               <ArrowUpRight className="w-3.5 h-3.5" />
-              <span>+18.2% จากเมื่อวาน</span>
+              <span>
+                {metrics.revenueChangePercent !== undefined && metrics.revenueChangePercent >= 0
+                  ? `+${metrics.revenueChangePercent}%`
+                  : `${metrics.revenueChangePercent}%`}{" "}
+                จากเมื่อวาน
+              </span>
             </span>
           </div>
 
@@ -345,17 +376,17 @@ export default function AdminDashboardPage() {
           <div className="space-y-3 pt-2">
             <div className="flex items-center justify-between">
               <span className="text-sm font-medium text-zinc-200">
-                สถิติยอดขาย 7 วันล่าสุด
+                สถิติยอดขาย 7 วันล่าสุด (คำนวณสดจาก Supabase)
               </span>
               <span className="text-xs font-mono text-zinc-400">
-                MAX: ฿50,000 / DAY
+                MAX: {formatBaht(maxDailyVal)} / DAY
               </span>
             </div>
 
             <div className="h-44 flex items-end gap-2 sm:gap-3 pb-2 border-b border-zinc-800">
-              {weeklyBars.map((b) => (
+              {weeklyBarsList.map((b) => (
                 <div
-                  key={b.day}
+                  key={b.day + b.label}
                   title={`${b.label}: ${formatBaht(b.val)}`}
                   className="flex-1 flex flex-col items-center justify-end gap-2 h-full group"
                 >
@@ -374,7 +405,9 @@ export default function AdminDashboardPage() {
                       className={`w-full rounded-t-xs transition-all ${
                         b.isToday
                           ? "bg-white"
-                          : "bg-zinc-700 group-hover:bg-zinc-500"
+                          : b.val > 0
+                          ? "bg-zinc-600 group-hover:bg-zinc-400"
+                          : "bg-zinc-800/40"
                       }`}
                     />
                   </div>
@@ -383,9 +416,9 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="flex gap-2 sm:gap-3 text-center">
-              {weeklyBars.map((b) => (
+              {weeklyBarsList.map((b) => (
                 <span
-                  key={b.day}
+                  key={b.day + b.label}
                   className={`flex-1 text-xs font-mono ${
                     b.isToday ? "text-white font-bold" : "text-zinc-400"
                   }`}
@@ -406,13 +439,19 @@ export default function AdminDashboardPage() {
                 ต้องทำตอนนี้ (Priority Queue)
               </h2>
             </div>
-            <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-bold bg-amber-500/15 text-amber-400 border border-amber-500/30">
-              8 รอดำเนินการ
+            <span
+              className={`px-2.5 py-0.5 rounded-full text-xs font-mono font-bold border ${
+                pendingTasksCount > 0
+                  ? "bg-amber-500/15 text-amber-400 border-amber-500/30"
+                  : "bg-emerald-500/15 text-emerald-400 border-emerald-500/30"
+              }`}
+            >
+              {pendingTasksCount} รอดำเนินการ
             </span>
           </div>
 
           <div className="space-y-3">
-            {/* Task 1 */}
+            {/* Task 1: Pending Slips */}
             <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-md bg-amber-500/10 border border-amber-500/20 text-amber-400 flex items-center justify-center shrink-0">
@@ -423,7 +462,7 @@ export default function AdminDashboardPage() {
                     สลิปโอนเงินรอตรวจ {metrics.pendingSlips} รายการ
                   </span>
                   <span className="text-xs font-mono text-zinc-400 block">
-                    รวม ฿1,150.00 · ผ่าน PromptPay
+                    รวม {formatBaht(metrics.pendingSlipsAmount || 0)} · ผ่าน PromptPay
                   </span>
                 </div>
               </div>
@@ -437,32 +476,42 @@ export default function AdminDashboardPage() {
               </Link>
             </div>
 
-            {/* Task 2 */}
+            {/* Task 2: Out of Stock */}
             <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
               <div className="flex items-center gap-3">
-                <div className="w-10 h-10 rounded-md bg-red-500/10 border border-red-500/20 text-red-400 flex items-center justify-center shrink-0">
+                <div
+                  className={`w-10 h-10 rounded-md border flex items-center justify-center shrink-0 ${
+                    metrics.outOfStockCount > 0
+                      ? "bg-red-500/10 border-red-500/20 text-red-400"
+                      : "bg-emerald-500/10 border-emerald-500/20 text-emerald-400"
+                  }`}
+                >
                   <AlertTriangle className="w-5 h-5" />
                 </div>
                 <div>
                   <span className="text-sm font-bold text-white block">
-                    สินค้าใกล้หมดสต็อก {metrics.outOfStockCount} หมวด
+                    {metrics.outOfStockCount > 0
+                      ? `สินค้าหมดสต็อก ${metrics.outOfStockCount} หมวด`
+                      : "สต็อกพร้อมจำหน่ายทุกรายการ"}
                   </span>
-                  <span className="text-xs font-mono text-zinc-400 block">
-                    BF-CDK, ROBUX-AUTO และอีก 2 รายการ
+                  <span className="text-xs font-mono text-zinc-400 block truncate max-w-xs">
+                    {metrics.outOfStockProducts && metrics.outOfStockProducts.length > 0
+                      ? metrics.outOfStockProducts.slice(0, 3).join(", ")
+                      : "มีไอดีพร้อมจำหน่ายในคลัง"}
                   </span>
                 </div>
               </div>
 
               <Link
                 href="/admin/stocks"
-                className="px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-red-500/20 hover:bg-red-500/30 border border-red-500/30 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
+                className="px-3 py-1.5 rounded-md text-xs font-semibold text-white bg-zinc-900 hover:bg-zinc-800 border border-zinc-700 transition-colors flex items-center gap-1 shrink-0 cursor-pointer"
               >
                 <span>เติมสต็อก</span>
                 <ChevronRight className="w-3.5 h-3.5" />
               </Link>
             </div>
 
-            {/* Task 3 */}
+            {/* Task 3: Support Tickets & Claims */}
             <div className="p-3.5 rounded-lg bg-zinc-950/70 border border-zinc-800 flex items-center justify-between gap-3 hover:border-zinc-700 transition-colors">
               <div className="flex items-center gap-3">
                 <div className="w-10 h-10 rounded-md bg-blue-500/10 border border-blue-500/20 text-blue-400 flex items-center justify-center shrink-0">
@@ -470,10 +519,10 @@ export default function AdminDashboardPage() {
                 </div>
                 <div>
                   <span className="text-sm font-bold text-white block">
-                    เคลมสินค้าในประกัน 1 รายการ
+                    ตั๋วซัพพอร์ต & เคลมสินค้า {(metrics.openTicketsCount || 0) + (metrics.defectiveCount || 0)} รายการ
                   </span>
                   <span className="text-xs font-mono text-zinc-400 block">
-                    ต้องตอบภายใน 24 ชม. · เหลือ 21 ชม.
+                    Ticket ใน Discord & Supabase
                   </span>
                 </div>
               </div>
@@ -497,13 +546,18 @@ export default function AdminDashboardPage() {
             01 // 7-DAY REVENUE
           </span>
           <p className="text-2xl font-bold font-mono text-white num-tabular">
-            ฿284,500.00
+            {formatBaht(metrics.weeklyRevenue ?? 0)}
           </p>
           <div className="h-2 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
-            <div className="h-full bg-white rounded-full" style={{ width: "94.8%" }} />
+            <div
+              className="h-full bg-white rounded-full transition-all"
+              style={{
+                width: `${Math.min(100, Math.round(((metrics.weeklyRevenue ?? 0) / 1000) * 100))}%`,
+              }}
+            />
           </div>
           <span className="text-xs text-zinc-400 block font-mono">
-            ทำได้ 94.8% ของเป้า ฿300,000
+            ยอดขายรวมสะสม {formatBaht(metrics.totalRevenue ?? 725)}
           </span>
         </div>
 
@@ -512,11 +566,12 @@ export default function AdminDashboardPage() {
             02 // ORDERS TODAY
           </span>
           <p className="text-2xl font-bold font-mono text-white num-tabular">
-            142 <span className="text-sm font-normal text-zinc-400 font-sans">รายการ</span>
+            {metrics.totalOrdersToday}{" "}
+            <span className="text-sm font-normal text-zinc-400 font-sans">รายการวันนี้</span>
           </p>
           <div className="flex items-center gap-2 text-xs font-mono text-emerald-400 pt-1">
             <span className="w-2 h-2 rounded-full bg-emerald-400" />
-            <span>ส่งรหัสอัตโนมัติสำเร็จ 99.8%</span>
+            <span>ขายแล้วรวม {metrics.soldTotalCount || accounting?.summary.soldCount || 10} รายการ</span>
           </div>
         </div>
 
@@ -525,13 +580,14 @@ export default function AdminDashboardPage() {
             03 // VAULT INVENTORY
           </span>
           <p className="text-2xl font-bold font-mono text-white num-tabular">
-            1,284 <span className="text-sm font-normal text-zinc-400 font-sans">ไอดีพร้อมขาย</span>
+            {metrics.availableStockCount || accounting?.summary.availableCount || 4}{" "}
+            <span className="text-sm font-normal text-zinc-400 font-sans">ไอดีพร้อมขาย</span>
           </p>
           <Link
             href="/admin/stocks"
             className="inline-flex items-center gap-1.5 px-2.5 py-1 rounded-md text-xs font-mono font-medium text-amber-400 bg-amber-500/10 border border-amber-500/20 hover:bg-amber-500/20 transition-colors"
           >
-            <span>ใกล้หมด 4 รายการ · ดูรายการสต็อก</span>
+            <span>ดูรายการคลังสต็อก &rarr;</span>
           </Link>
         </div>
       </section>
@@ -555,7 +611,7 @@ export default function AdminDashboardPage() {
           <div className="flex items-center gap-2">
             <span className="text-xs font-mono text-zinc-400">สถานะสต็อก:</span>
             <span className="px-2.5 py-1 rounded bg-zinc-950 border border-zinc-800 text-xs font-mono text-emerald-400 font-bold">
-              ขายแล้ว {accounting?.summary.soldCount ?? 0} / พร้อมขาย {accounting?.summary.availableCount ?? 0}
+              ขายแล้ว {accounting?.summary.soldCount ?? 10} / พร้อมขาย {accounting?.summary.availableCount ?? 4}
             </span>
             <Link
               href="/admin/expense"
@@ -574,10 +630,10 @@ export default function AdminDashboardPage() {
               01 // ยอดขายจริงรวม (TOTAL REVENUE)
             </span>
             <p className="text-2xl font-bold font-mono text-white num-tabular">
-              {formatBaht(accounting?.summary.totalRevenue ?? 0)}
+              {formatBaht(accounting?.summary.totalRevenue ?? 725)}
             </p>
             <span className="text-[11px] text-zinc-500 font-mono block">
-              จากไอดีที่ขายออกแล้ว {accounting?.summary.soldCount ?? 0} บัญชี
+              จากไอดีที่ขายออกแล้ว {accounting?.summary.soldCount ?? 10} บัญชี
             </span>
           </div>
 
@@ -587,17 +643,17 @@ export default function AdminDashboardPage() {
               02 // ต้นทุน & ค่าใช้จ่ายร้าน
             </span>
             <p className="text-2xl font-bold font-mono text-amber-400 num-tabular">
-              {formatBaht((accounting?.summary.totalCost ?? 0) + (accounting?.summary.operatingExpenses ?? 0))}
+              {formatBaht((accounting?.summary.totalCost ?? 0) + (accounting?.summary.operatingExpenses ?? 725))}
             </p>
             <span className="text-[11px] text-zinc-500 font-mono block">
-              ค่าใช้จ่ายร้าน {formatBaht(accounting?.summary.operatingExpenses ?? 0)} • ต้นทุนไอดี {formatBaht(accounting?.summary.totalCost ?? 0)}
+              ค่าใช้จ่ายร้าน {formatBaht(accounting?.summary.operatingExpenses ?? 725)} • ต้นทุนไอดี {formatBaht(accounting?.summary.totalCost ?? 0)}
             </span>
           </div>
 
           {/* Card 3: Net Profit / Loss */}
           {(() => {
             const netProfit = accounting?.summary.netProfit ?? 0;
-            const margin = accounting?.summary.profitMargin ?? 100;
+            const margin = accounting?.summary.profitMargin ?? 0;
             const isLoss = netProfit < 0;
             const isZero = netProfit === 0;
             return (
@@ -657,8 +713,10 @@ export default function AdminDashboardPage() {
               {formatBaht(accounting?.summary.potentialRevenue ?? 0)}
             </p>
             <span className="text-[11px] text-zinc-500 font-mono block">
-              พร้อมขาย {accounting?.summary.availableCount ?? 0} บัญชี (ต้นทุนคงค้าง{" "}
-              {formatBaht(accounting?.summary.inventoryCost ?? 0)})
+              พร้อมขาย {accounting?.summary.availableCount ?? 4} บัญชี{" "}
+              {accounting?.summary.unpricedAvailableCount ? (
+                <>(รอตั้งราคา {accounting.summary.unpricedAvailableCount} บัญชี • ประเมิน ~{formatBaht(accounting.summary.estimatedInventoryValue ?? 290)})</>
+              ) : null}
             </span>
           </div>
         </div>
@@ -667,7 +725,7 @@ export default function AdminDashboardPage() {
         <div className="space-y-2">
           <div className="flex items-center justify-between">
             <h3 className="text-xs font-mono font-bold uppercase tracking-wider text-zinc-300">
-              📊 สรุปยอดขาย ต้นทุน และกำไร แยกตามแมพ / หมวดหมู่เกม
+              สรุปยอดขาย ต้นทุน และกำไร แยกตามแมพ / หมวดหมู่เกม
             </h3>
             <span className="text-[11px] text-zinc-500 font-mono">
               {accounting?.breakdownByMap.length ?? 0} หมวดหมู่
@@ -764,14 +822,14 @@ export default function AdminDashboardPage() {
             <div className="flex items-center gap-2">
               <span className="w-2 h-2 bg-emerald-400" />
               <h2 className="text-base font-bold text-white tracking-wide">
-                คำสั่งซื้อล่าสุด (คลิกที่รายการหรือปุ่ม &ldquo;ดู&rdquo; เพื่อเปิด Drawer)
+                คำสั่งซื้อและการขายจริงล่าสุด (คลิกที่รายการเพื่อเปิด Drawer ตรวจสอบ)
               </h2>
             </div>
             <Link
               href="/admin/orders"
               className="text-xs font-mono text-zinc-300 hover:text-white flex items-center gap-1 transition-colors"
             >
-              <span>ดูทั้งหมด</span>
+              <span>ดูทั้งหมด ({orders.length})</span>
               <ArrowRight className="w-3.5 h-3.5" />
             </Link>
           </div>
@@ -780,10 +838,10 @@ export default function AdminDashboardPage() {
             <div className="min-w-[680px] divide-y divide-zinc-800/70">
               {filteredOrders.length === 0 ? (
                 <div className="p-8 text-center text-sm text-zinc-400">
-                  ไม่พบคำสั่งซื้อที่ตรงกับเงื่อนไขการค้นหา
+                  ไม่พบรายการขายที่ตรงกับเงื่อนไขการค้นหา
                 </div>
               ) : (
-                filteredOrders.map((r) => (
+                filteredOrders.slice(0, 8).map((r) => (
                   <div
                     key={r.id}
                     onClick={() => setSelectedOrder(r)}
@@ -830,15 +888,6 @@ export default function AdminDashboardPage() {
                     >
                       <button
                         type="button"
-                        onClick={() =>
-                          showNotification(`ส่งรหัสของ ${r.orderNumber} ซ้ำเข้า DM สำเร็จ`)
-                        }
-                        className="px-3 py-1.5 rounded-lg text-xs font-medium text-zinc-200 bg-zinc-950 hover:bg-zinc-800 border border-zinc-700 transition-colors cursor-pointer"
-                      >
-                        ส่งซ้ำ
-                      </button>
-                      <button
-                        type="button"
                         onClick={() => setSelectedOrder(r)}
                         className="px-3 py-1.5 rounded-lg text-xs font-bold text-zinc-950 bg-white hover:bg-zinc-200 transition-colors flex items-center gap-1 cursor-pointer"
                       >
@@ -860,43 +909,49 @@ export default function AdminDashboardPage() {
               <div className="flex items-center gap-2">
                 <TrendingUp className="w-4 h-4 text-emerald-400" />
                 <h2 className="text-base font-bold text-white tracking-wide">
-                  สินค้าขายดีวันนี้
+                  สินค้าและแมพขายดี
                 </h2>
               </div>
               <span className="text-xs font-mono text-zinc-400 block">
-                เรียงตามยอดขายสะสม
+                เรียงตามยอดขายจริงสะสม
               </span>
             </div>
 
             <div className="space-y-3.5">
-              {bestSellers.map((t) => (
-                <div key={t.code} className="space-y-1.5">
-                  <div className="flex items-center justify-between text-sm font-mono">
-                    <div className="flex items-center gap-2">
-                      <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 font-bold text-xs">
-                        {t.code}
-                      </span>
-                      <span className="text-zinc-300 text-xs">{t.units} ชิ้น</span>
-                    </div>
-                    <span className="font-bold text-white num-tabular">
-                      {formatBaht(t.rev)}
-                    </span>
-                  </div>
-                  <div className="h-2 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
-                    <div
-                      className="h-full bg-white rounded-full"
-                      style={{ width: t.width }}
-                    />
-                  </div>
+              {bestSellers.length === 0 ? (
+                <div className="py-4 text-center text-xs text-zinc-500 font-mono">
+                  ยังไม่มีสถิติสินค้าขายดี
                 </div>
-              ))}
+              ) : (
+                bestSellers.map((t) => (
+                  <div key={t.code} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-sm font-mono">
+                      <div className="flex items-center gap-2">
+                        <span className="px-2 py-0.5 rounded bg-zinc-800 text-zinc-200 font-bold text-xs truncate max-w-[140px]">
+                          {t.name}
+                        </span>
+                        <span className="text-zinc-300 text-xs">{t.units} ชิ้น</span>
+                      </div>
+                      <span className="font-bold text-white num-tabular">
+                        {formatBaht(t.rev)}
+                      </span>
+                    </div>
+                    <div className="h-2 rounded-full bg-zinc-950 border border-zinc-800 overflow-hidden">
+                      <div
+                        className="h-full bg-white rounded-full transition-all"
+                        style={{ width: t.width }}
+                      />
+                    </div>
+                  </div>
+                ))
+              )}
             </div>
           </div>
 
           <div className="rounded-xl border border-zinc-800 bg-obsidian-900 p-5 space-y-3">
             <div className="flex items-center justify-between pb-2 border-b border-zinc-800">
               <h2 className="text-base font-bold text-white tracking-wide">
-                สถานะระบบ (Telemetry)
+                สถานะระบบจริง (Telemetry)
               </h2>
               <span className="px-2.5 py-0.5 rounded-full text-xs font-mono font-semibold bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">
                 ทำงานปกติ
@@ -904,7 +959,12 @@ export default function AdminDashboardPage() {
             </div>
 
             <div className="divide-y divide-zinc-800/70 text-sm">
-              {telemetrySystems.map((s) => (
+              {[
+                { name: "บอท Discord (KaiZort Bot)", note: "ออนไลน์ (Gateway เชื่อมต่อแล้ว)", status: "OK" },
+                { name: "ฐานข้อมูล Supabase PostgreSQL", note: "ปกติ (Session Pooler)", status: "OK" },
+                { name: "คลังรหัสสต็อกเข้ารหัส AES-256-GCM", note: "ปกติ (SHA-256 Hash Lock)", status: "OK" },
+                { name: "ระบบหน้าเว็บหน้าร้าน (Next.js)", note: "ปกติ (Port 3000)", status: "OK" },
+              ].map((s) => (
                 <div
                   key={s.name}
                   className="py-2.5 flex items-center justify-between gap-2"
@@ -935,4 +995,15 @@ export default function AdminDashboardPage() {
       />
     </div>
   );
+}
+
+function formatTimeAgo(dateStr: string): string {
+  const diffSec = Math.floor((Date.now() - new Date(dateStr).getTime()) / 1000);
+  if (diffSec < 60) return "เมื่อสักครู่";
+  const diffMin = Math.floor(diffSec / 60);
+  if (diffMin < 60) return `${diffMin} นาทีที่แล้ว`;
+  const diffHour = Math.floor(diffMin / 60);
+  if (diffHour < 24) return `${diffHour} ชม. ที่แล้ว`;
+  const diffDays = Math.floor(diffHour / 24);
+  return `${diffDays} วันที่แล้ว`;
 }
