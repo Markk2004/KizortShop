@@ -3207,7 +3207,10 @@ class KeyValidationBot(discord.Client):
             sale_target = None
             sale_price = None
 
-            for pfx in ["ขายไอเทม ", "ขายแล้ว ", "ขายเเล้ว ", "ขายละ ", "ขายล่ะ ", "ขาย ", "ได้ ", "รายได้ "]:
+            for pfx in [
+                "ขายไอเทม ", "เพิ่มรายรับ ", "เพิ่มรายได้ ", "รายรับ ", "รายได้ ",
+                "ขายแล้ว ", "ขายเเล้ว ", "ขายละ ", "ขายล่ะ ", "ขาย ", "ได้ ",
+            ]:
                 if lower_msg.startswith(pfx) and not lower_msg.startswith("/"):
                     is_sale_trigger = True
                     rem = raw_msg[len(pfx):].strip()
