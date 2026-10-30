@@ -66,6 +66,14 @@ export class AdminOrdersController {
       }
 
       const soldDate = stk.soldAt || stk.updatedAt || stk.createdAt;
+      const rawMap = (stk.farmedMaps || stk.details || stk.product?.title || "Break And Steal Egg").trim();
+      const mapLower = rawMap.toLowerCase();
+      let cleanMap = "Break And Steal Egg";
+      if (mapLower.includes("tap") || mapLower.includes("simulator")) {
+        cleanMap = "Tap Simulator Reborn";
+      } else if (mapLower.includes("blox") || mapLower.includes("bf")) {
+        cleanMap = "Blox Fruits";
+      }
 
       result.push({
         id: stk.id,
@@ -73,8 +81,10 @@ export class AdminOrdersController {
         buyer: stk.username || stk.maskedIdentity || "ลูกค้าผ่าน Discord",
         buyerEmail: "discord-customer@kaizort.store",
         productTitle:
-          stk.farmedMaps || stk.details || stk.product?.title || "ไอดีไก่ตัน",
-        categoryCode: stk.product?.code || stk.product?.category?.name || "KAITUN",
+          stk.details && !stk.details.toLowerCase().includes("break")
+            ? `${cleanMap} (${stk.details})`
+            : cleanMap,
+        categoryCode: cleanMap,
         deliveredCode: stk.serialCode,
         decryptedCredential: "●●●●●●●●",
         amount: price,

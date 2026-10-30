@@ -317,6 +317,7 @@ export class AdminDashboardController {
       totalRevenue,
       totalOrdersToday: soldTodayCount,
       soldTotalCount,
+      soldStockCount: soldTotalCount,
       availableStockCount: availableCount,
       defectiveCount,
       openTicketsCount,
