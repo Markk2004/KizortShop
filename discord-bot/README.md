@@ -33,8 +33,6 @@ discord-bot/
 | `/process` | `link:<str>` | **ประมวลผลลิงก์** จากระบบ Partner/Provider ที่ได้รับอนุญาต แสดงเวลาและปุ่ม Copy Key |
 | `/redeem` | `[key]`, `[ephemeral]` | ยืนยันคีย์ของคุณ หรือกด Enter เพื่อรับคีย์ |
 | `/ask` | `message:<str>` | พูดคุย สอบถามข้อมูล หรือขอความช่วยเหลือจากบอท |
-| `/roblox_status` | `[ephemeral]` | **ตรวจสถานะเกม** เช็กว่า Roblox หรือ MuMu Player กำลังเล่นอยู่หรือไม่ พร้อม PID, RAM, Uptime |
-| `/roblox_screen` | `[ephemeral]` | **แคปภาพหน้าจอสด** สั่งแคปภาพหน้าจอเกม Roblox / คอมพิวเตอร์ส่งมาให้ดูใน Discord ทันที |
 | `/help` | `[ephemeral]` | แสดงคู่มือและรายการคำสั่งทั้งหมดในรูปแบบ Embed |
 
 ---

@@ -100,8 +100,12 @@ export async function getFeaturedProducts(): Promise<Product[]> {
     return applyProductAvailability(real);
   }
   if (USE_MOCKS) return applyProductAvailability(mockProducts);
-  const data = await apiGet<Product[]>("/products?featured=true");
-  return applyProductAvailability(data);
+  try {
+    const data = await apiGet<Product[]>("/products?featured=true");
+    return applyProductAvailability(data);
+  } catch {
+    return applyProductAvailability(mockProducts);
+  }
 }
 
 export async function getProducts(categoryId?: string): Promise<Product[]> {
@@ -120,6 +124,11 @@ export async function getProducts(categoryId?: string): Promise<Product[]> {
     const list = categoryId ? mockProducts.filter((p) => p.categoryId === categoryId) : mockProducts;
     return applyProductAvailability(list);
   }
-  const data = await apiGet<Product[]>(`/products${categoryId ? `?category=${categoryId}` : ""}`);
-  return applyProductAvailability(data);
+  try {
+    const data = await apiGet<Product[]>(`/products${categoryId ? `?category=${categoryId}` : ""}`);
+    return applyProductAvailability(data);
+  } catch {
+    const list = categoryId ? mockProducts.filter((p) => p.categoryId === categoryId) : mockProducts;
+    return applyProductAvailability(list);
+  }
 }

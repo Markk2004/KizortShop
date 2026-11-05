@@ -1,0 +1,15 @@
+.venv
+__pycache__
+*.pyc
+.pytest_cache
+.git
+.gitignore
+.env
+.env.*
+*.env
+data/*.sqlite3*
+data/*.db*
+*.sqlite3*
+*.db*
+test_crop.png
+tests

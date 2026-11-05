@@ -1,6 +1,21 @@
 .venv/
 __pycache__/
 *.py[cod]
-.env
-data/*.sqlite3
 .pytest_cache/
+
+# Strict Environment & Secret Protection
+.env
+.env.*
+*.env
+!.env.example
+
+# Local SQLite & Database Files
+data/*.sqlite3*
+data/*.db*
+*.sqlite3*
+*.db*
+
+# Temporary Artifacts
+test_crop.png
+*.pem
+*.key

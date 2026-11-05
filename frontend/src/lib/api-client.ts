@@ -2,10 +2,23 @@
  * The only place that talks to the backend.
  * Feature `api.ts` files call these helpers; components never call fetch directly.
  */
-const BASE_URL =
-  process.env.NEXT_PUBLIC_API_URL ??
-  process.env.NEXT_PUBLIC_API_BASE_URL ??
-  "http://localhost:4000/api/v1";
+function getBaseUrl(): string {
+  if (typeof window === "undefined") {
+    // Server-side execution (e.g. inside Docker SSR runtime)
+    return (
+      process.env.INTERNAL_API_URL ||
+      process.env.NEXT_PUBLIC_API_URL ||
+      process.env.NEXT_PUBLIC_API_BASE_URL ||
+      "http://localhost:4000/api/v1"
+    );
+  }
+  // Client-side execution (inside the browser)
+  return (
+    process.env.NEXT_PUBLIC_API_URL ||
+    process.env.NEXT_PUBLIC_API_BASE_URL ||
+    "http://localhost:4000/api/v1"
+  );
+}
 
 export class ApiError extends Error {
   constructor(public status: number, message: string) {
@@ -14,7 +27,8 @@ export class ApiError extends Error {
 }
 
 export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     headers: { Accept: "application/json", ...init?.headers },
   });
@@ -23,7 +37,8 @@ export async function apiGet<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export async function apiPost<T>(path: string, body: unknown, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     method: "POST",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...init?.headers },
@@ -34,7 +49,8 @@ export async function apiPost<T>(path: string, body: unknown, init?: RequestInit
 }
 
 export async function apiPatch<T>(path: string, body?: unknown, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     method: "PATCH",
     headers: { "Content-Type": "application/json", Accept: "application/json", ...init?.headers },
@@ -45,7 +61,8 @@ export async function apiPatch<T>(path: string, body?: unknown, init?: RequestIn
 }
 
 export async function apiDelete<T>(path: string, init?: RequestInit): Promise<T> {
-  const res = await fetch(`${BASE_URL}${path}`, {
+  const baseUrl = getBaseUrl();
+  const res = await fetch(`${baseUrl}${path}`, {
     ...init,
     method: "DELETE",
     headers: { Accept: "application/json", ...init?.headers },

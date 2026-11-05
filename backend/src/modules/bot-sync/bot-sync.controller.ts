@@ -76,9 +76,10 @@ export class BotSyncController {
       throw new BadRequestException('username and password are required');
     }
 
-    const secret =
-      this.config.get<string>('STOCK_ENCRYPTION_SECRET') ||
-      'kz_store_aes256_gcm_stock_vault_secret_2026';
+    const secret = this.config.get<string>('STOCK_ENCRYPTION_SECRET');
+    if (!secret) {
+      throw new UnauthorizedException('STOCK_ENCRYPTION_SECRET is not configured');
+    }
     const rawLine = dto.cookie
       ? `${dto.username}:${dto.password}:${dto.cookie}`
       : `${dto.username}:${dto.password}`;
@@ -200,9 +201,10 @@ export class BotSyncController {
   ) {
     this.verifyBotApiKey(apiKey);
 
-    const secret =
-      this.config.get<string>('STOCK_ENCRYPTION_SECRET') ||
-      'kz_store_aes256_gcm_stock_vault_secret_2026';
+    const secret = this.config.get<string>('STOCK_ENCRYPTION_SECRET');
+    if (!secret) {
+      throw new UnauthorizedException('STOCK_ENCRYPTION_SECRET is not configured');
+    }
     const inspection = inspectAndHashCredential(dto.username, 'USER_PASS', secret);
     const credHash = inspection.credentialHash;
 
@@ -250,9 +252,10 @@ export class BotSyncController {
       throw new BadRequestException('username is required');
     }
 
-    const secret =
-      this.config.get<string>('STOCK_ENCRYPTION_SECRET') ||
-      'kz_store_aes256_gcm_stock_vault_secret_2026';
+    const secret = this.config.get<string>('STOCK_ENCRYPTION_SECRET');
+    if (!secret) {
+      throw new UnauthorizedException('STOCK_ENCRYPTION_SECRET is not configured');
+    }
     const inspection = inspectAndHashCredential(dto.username, 'USER_PASS', secret);
     const credHash = inspection.credentialHash;
 

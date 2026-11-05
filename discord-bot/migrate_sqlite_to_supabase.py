@@ -6,14 +6,14 @@ import json
 import base64
 import requests
 from cryptography.hazmat.primitives.ciphers.aead import AESGCM
+from dotenv import load_dotenv
 
-# Supabase Credentials
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qidraqabrlnuurnlkwko.supabase.co")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv(
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZHJhcWFicmxudXVybmxrd2tvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjQwMzQ5MSwiZXhwIjoyMTA3OTc5NDkxfQ.c_1QBE2T4ujEscyHUPuzkXnHW33o8KHXKyKy99eJiGM"
-)
-STOCK_ENCRYPTION_SECRET = os.getenv("STOCK_ENCRYPTION_SECRET", "kz_store_aes256_gcm_stock_vault_secret_2026")
+load_dotenv(os.path.join(os.path.dirname(os.path.abspath(__file__)), ".env"))
+
+# Supabase Credentials (loaded strictly from environment / .env)
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+STOCK_ENCRYPTION_SECRET = os.getenv("STOCK_ENCRYPTION_SECRET", "").strip()
 
 def get_aes_key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode('utf-8')).digest()

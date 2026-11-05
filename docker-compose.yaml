@@ -1,0 +1,93 @@
+name: kaitan-store
+
+services:
+  kaitan-backend:
+    build:
+      context: ./backend
+      dockerfile: Dockerfile
+    container_name: kaitan-backend
+    restart: unless-stopped
+    ports:
+      - "${BACKEND_PORT:-4000}:4000"
+    env_file:
+      - path: ./backend/.env
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 4000
+      FRONTEND_URL: ${FRONTEND_URL:-http://localhost:3000}
+      FRONTEND_HEALTH_URL: ${FRONTEND_HEALTH_URL:-http://kaitan-frontend:3000}
+    networks:
+      - kaitan-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:4000/api/v1/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 25s
+
+  kaitan-frontend:
+    build:
+      context: ./frontend
+      dockerfile: Dockerfile
+      args:
+        NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
+        NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000/api/v1}
+        NEXT_PUBLIC_USE_MOCKS: ${NEXT_PUBLIC_USE_MOCKS:-false}
+        NEXT_PUBLIC_SUPABASE_URL: ${NEXT_PUBLIC_SUPABASE_URL:-}
+        NEXT_PUBLIC_SUPABASE_ANON_KEY: ${NEXT_PUBLIC_SUPABASE_ANON_KEY:-}
+    container_name: kaitan-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:3000"
+    env_file:
+      - path: ./frontend/.env.local
+        required: false
+    environment:
+      NODE_ENV: production
+      PORT: 3000
+      HOSTNAME: "0.0.0.0"
+      INTERNAL_API_URL: http://kaitan-backend:4000/api/v1
+      NEXT_PUBLIC_API_URL: ${NEXT_PUBLIC_API_URL:-http://localhost:4000/api/v1}
+      NEXT_PUBLIC_API_BASE_URL: ${NEXT_PUBLIC_API_BASE_URL:-http://localhost:4000/api/v1}
+      NEXT_PUBLIC_USE_MOCKS: ${NEXT_PUBLIC_USE_MOCKS:-false}
+    depends_on:
+      kaitan-backend:
+        condition: service_healthy
+    networks:
+      - kaitan-net
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://127.0.0.1:3000/"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 20s
+
+  discord-bot:
+    build:
+      context: ./discord-bot
+      dockerfile: Dockerfile
+    container_name: kaitan-discord-bot
+    restart: unless-stopped
+    env_file:
+      - path: ../discord-bot/.env
+        required: false
+    environment:
+      DATABASE_PATH: /app/data/bot.sqlite3
+      BACKEND_API_URL: ${BOT_BACKEND_API_URL:-http://kaitan-backend:4000}
+    volumes:
+      - bot_data:/app/data
+    depends_on:
+      kaitan-backend:
+        condition: service_healthy
+    networks:
+      - kaitan-net
+
+networks:
+  kaitan-net:
+    name: kaitan-net
+    driver: bridge
+
+volumes:
+  bot_data:
+    name: kaitan_bot_data

@@ -13,7 +13,10 @@ function hashCredential(rawIdentity: string, secret: string): string {
 async function main() {
   console.log('Starting Supabase database seed for KaiZort Store...');
 
-  const encryptionSecret = process.env.STOCK_ENCRYPTION_SECRET || 'kz_store_aes256_gcm_stock_vault_secret_2026';
+  const encryptionSecret = process.env.STOCK_ENCRYPTION_SECRET;
+  if (!encryptionSecret) {
+    throw new Error('STOCK_ENCRYPTION_SECRET environment variable is required for seeding');
+  }
 
   // 1. Upsert Admin & Demo Member Users
   const adminUser = await prisma.user.upsert({

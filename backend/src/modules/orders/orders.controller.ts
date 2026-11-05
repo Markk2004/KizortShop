@@ -20,6 +20,13 @@ export class OrdersController {
     return await this.ordersService.checkout(dto);
   }
 
+  @Get('recent')
+  async getRecentOrders(@Query('limit') limit?: string) {
+    return await this.ordersService.listOrders({
+      limit: limit ? parseInt(limit, 10) : 10,
+    });
+  }
+
   @Get()
   async listOrders(
     @Query('userId') userId?: string,

@@ -34,7 +34,7 @@ let robuxServiceState = {
 @Controller("admin/products")
 export class AdminProductsController {
   private readonly encryptionSecret =
-    process.env.STOCK_ENCRYPTION_SECRET || "kz_store_aes256_gcm_stock_vault_secret_2026";
+    process.env.STOCK_ENCRYPTION_SECRET || "";
 
   constructor(
     private readonly prisma: PrismaService,

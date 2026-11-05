@@ -18,14 +18,11 @@ logger = logging.getLogger(__name__)
 _base_dir = os.path.dirname(os.path.abspath(__file__))
 load_dotenv(os.path.join(_base_dir, ".env"))
 
-SUPABASE_URL = os.getenv("SUPABASE_URL", "https://qidraqabrlnuurnlkwko.supabase.co")
-SUPABASE_SERVICE_ROLE_KEY = os.getenv(
-    "SUPABASE_SERVICE_ROLE_KEY",
-    "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZHJhcWFicmxudXVybmxrd2tvIiwicm9sZSI6InNlcnZpY2Vfcm9sZSIsImlhdCI6MTc5MjQwMzQ5MSwiZXhwIjoyMTA3OTc5NDkxfQ.c_1QBE2T4ujEscyHUPuzkXnHW33o8KHXKyKy99eJiGM"
-)
-STOCK_ENCRYPTION_SECRET = os.getenv("STOCK_ENCRYPTION_SECRET", "kz_store_aes256_gcm_stock_vault_secret_2026")
+SUPABASE_URL = os.getenv("SUPABASE_URL", "").strip()
+SUPABASE_SERVICE_ROLE_KEY = os.getenv("SUPABASE_SERVICE_ROLE_KEY", "").strip()
+STOCK_ENCRYPTION_SECRET = os.getenv("STOCK_ENCRYPTION_SECRET", "").strip()
 BACKEND_API_URL = os.getenv("BACKEND_API_URL", "http://localhost:4000").rstrip("/")
-BOT_API_KEY = os.getenv("BOT_API_KEY", "kz_internal_sync_api_key_2026_9f8c12a7")
+BOT_API_KEY = os.getenv("BOT_API_KEY", "").strip()
 
 def _get_aes_key(secret: str) -> bytes:
     return hashlib.sha256(secret.encode('utf-8')).digest()
@@ -92,7 +89,7 @@ class Database:
             self._connection.row_factory = sqlite3.Row
             if not self._is_test_env:
                 try:
-                    self._connection.execute("PRAGMA journal_mode=WAL;")
+                    self._connection.execute("PRAGMA journal_mode=DELETE;")
                     self._connection.execute("PRAGMA busy_timeout=5000;")
                 except Exception:
                     pass

@@ -22,7 +22,6 @@ from database import Database
 from key_service import KeyService
 from process_service import ProcessService
 from provider_client import ProviderClient
-from roblox_service import RobloxService
 from kaitun_service import KaitunService
 from ticket_service import TicketService
 from agy_service import AgyService, load_agy_settings, split_for_discord
@@ -223,9 +222,6 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
             name="[คำสั่งข้อความด่วน (ไม่ต้องพิมพ์ /)]",
             value=(
                 "• `help` / `วิธีใช้` / `คำสั่ง` - แสดงหน้ารวมคำสั่งลัดนี้\n"
-                "• `status` / `สถานะ` - ตรวจเช็คสถานะการทำงานของ Roblox, Uptime และโปรเซสบนเครื่อง\n"
-                "• `screen` / `จอ` / `แคป` - ขอภาพถ่ายหน้าจอสด (Live Screenshot) จากเครื่องโฮสต์\n"
-                "• `reconnect` / `เข้าเกม` - สั่งเปิด Roblox PC และเข้าสู่เกมทันทีจากระยะไกล\n"
                 "• `getkey` / `ขอคีย์` / `คีย์` - ขอรับ Access Key ฟรีประจำวัน"
             ),
             inline=False,
@@ -233,9 +229,6 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
         embed.add_field(
             name="[คำสั่ง Slash Commands]",
             value=(
-                "• `/status` - ตรวจสอบสถานะ Roblox และ Uptime อย่างละเอียด\n"
-                "• `/screen` - บันทึกภาพหน้าจอส่งกลับมาใน Discord ทันที\n"
-                "• `/reconnect [place_id]` - เปิดเกม Roblox และเชื่อมต่อเข้าแมพที่กำหนด\n"
                 "• `/getkey` - รับคีย์ประจำวันสำหรับเข้าใช้งานระบบ\n"
                 "• `/process [link]` - ประมวลผลลิงก์ผ่านระบบที่ได้รับอนุญาต\n"
                 "• `/ask [message]` - พูดคุย สอบถามข้อมูล หรือปรึกษาบอทผู้ช่วย\n"
@@ -431,33 +424,6 @@ class CopyKeyView(discord.ui.View):
             ephemeral=True,
         )
 
-
-class ReconnectView(discord.ui.View):
-    def __init__(self, place_id: Optional[str] = None):
-        super().__init__(timeout=None)  # persistent view
-        self.place_id = place_id
-
-    @discord.ui.button(
-        label="🔄 Reconnect (เปิดเกมใหม่ทันที)",
-        style=discord.ButtonStyle.success,
-        custom_id="btn_reconnect_game",
-    )
-    async def reconnect_button(
-        self, interaction: discord.Interaction, button: discord.ui.Button
-    ):
-        from roblox_service import launch_roblox
-        await interaction.response.defer(ephemeral=False)
-        ok, msg = launch_roblox(self.place_id)
-        if ok:
-            embed = discord.Embed(
-                title="🚀 ดำเนินการเปิดเกมใหม่เรียบร้อย",
-                description=f"{msg}\nระบบกำลังรัน Roblox PC บนเครื่องคอมพิวเตอร์ของคุณ",
-                color=discord.Color.green(),
-            )
-            embed.set_footer(text=f"สั่งการโดย {interaction.user.name} • {datetime.now().strftime('%H:%M:%S')}")
-            await interaction.followup.send(embed=embed)
-        else:
-            await interaction.followup.send(f"❌ {msg}", ephemeral=True)
 
 class StockUpdateModal(discord.ui.Modal, title="📝 ฟอร์มอัปเดตข้อมูลไอดี"):
     def __init__(self, kaitun_service: KaitunService, prefill_account: Optional[dict] = None):
@@ -1380,7 +1346,6 @@ class KeyValidationBot(discord.Client):
         self.process_service = process_service or ProcessService(
             ProviderClient(), service
         )
-        self.roblox_service = RobloxService()
         self.kaitun_service = kaitun_service or KaitunService(self.service.database)
         base_dir = os.path.dirname(os.path.abspath(__file__))
         default_ticket_db = os.path.join(base_dir, "data", "tickets.sqlite3")
@@ -1401,7 +1366,6 @@ class KeyValidationBot(discord.Client):
 
             stats = self.db.get_financial_stats()
             k_stats = self.kaitun_service.get_stock_summary()
-            rf_info = self.roblox_service.get_status_info()
 
             embed = {
                 "title": "☀️ [สรุปสถานะระบบประจำวัน] KaiZort Assistant & Stock Hub",
@@ -1416,11 +1380,6 @@ class KeyValidationBot(discord.Client):
                     {
                         "name": "💰 สรุปบัญชีร้าน",
                         "value": f"กำไรสุทธิ: **฿{stats.get('net_profit', 0.0):,.2f}** | รายรับ: ฿{stats.get('total_revenue', 0.0):,.2f} | ค่าใช้จ่าย: ฿{stats.get('operating_expenses', 0.0):,.2f}",
-                        "inline": False,
-                    },
-                    {
-                        "name": "🤖 สถานะตัวเกม & โฮสต์",
-                        "value": f"สถานะ: `{rf_info.get('status_text', 'Active')}` | เกจเวลา: `{rf_info.get('duration_str', '-')}`",
                         "inline": False,
                     },
                 ],
@@ -1803,154 +1762,6 @@ class KeyValidationBot(discord.Client):
             await interaction.followup.send(chunks[0], ephemeral=True)
             for extra in chunks[1:5]:
                 await interaction.followup.send(extra, ephemeral=True)
-
-        def _build_status_embed(info: dict) -> discord.Embed:
-            is_run = info["is_running"]
-            color = discord.Color.green() if is_run else discord.Color.red()
-            status_txt = info["status_text"]
-
-            embed = discord.Embed(
-                title="🎮 ข้อมูลสถานะการทำงาน (Roblox & Emulator)",
-                description=f"สถานะปัจจุบัน: **{status_txt}**",
-                color=color,
-            )
-            embed.add_field(
-                name=info["duration_title"],
-                value=f"**{info['duration_str']}**",
-                inline=True,
-            )
-            if is_run:
-                embed.add_field(
-                    name="🕒 เริ่มเปิดเกมเมื่อ",
-                    value=f"`{info.get('started_at', 'ไม่ระบุ')}`",
-                    inline=True,
-                )
-            else:
-                embed.add_field(
-                    name="⚠️ สถานะตัวเกม",
-                    value="`ไม่อยู่ใน Roblox (ปิดอยู่)`",
-                    inline=True,
-                )
-
-            embed.add_field(
-                name="⏰ เวลาที่ตรวจเช็ก",
-                value=f"`{info['timestamp']}`",
-                inline=False,
-            )
-
-            if is_run:
-                p_lines = [
-                    f"• **{p['name']}** (PID: `{p['pid']}`, RAM: `{p['memory']}`, เริ่ม: `{p.get('start_time_str', '-')}`)"
-                    for p in info["processes"]
-                ]
-                embed.add_field(
-                    name="⚙️ Process ที่กำลังรันอยู่",
-                    value="\n".join(p_lines),
-                    inline=False,
-                )
-            else:
-                embed.add_field(
-                    name="ℹ️ รายละเอียด",
-                    value="❌ **ไม่อยู่ใน Roblox หรือโปรแกรมจำลอง** (ตรวจไม่พบ Process ใดๆ ในเครื่องขณะนี้)",
-                    inline=False,
-                )
-
-            embed.set_footer(text="Roblox Real-time Uptime Tracker • พร้อมใช้งาน")
-            return embed
-
-        # Common handlers for status and screen
-        async def _handle_status(interaction: discord.Interaction, ephemeral: bool = False):
-            await interaction.response.defer(ephemeral=ephemeral)
-            info = self.roblox_service.get_status_info()
-            embed = _build_status_embed(info)
-            await interaction.followup.send(embed=embed, ephemeral=ephemeral)
-
-        async def _handle_screen(interaction: discord.Interaction, ephemeral: bool = False):
-            await interaction.response.defer(ephemeral=ephemeral)
-            
-            temp_path = os.path.join(tempfile.gettempdir(), f"roblox_screen_{int(time.time()*1000)}.png")
-            
-            ok, target_desc = self.roblox_service.capture_screen_detailed(temp_path)
-            if not ok or not os.path.exists(temp_path):
-                await interaction.followup.send(
-                    "❌ ไม่สามารถแคปภาพหน้าจอได้ในขณะนี้ กรุณาลองใหม่อีกครั้ง",
-                    ephemeral=ephemeral,
-                )
-                return
-
-            try:
-                d_file = discord.File(temp_path, filename="roblox_screen.png")
-                embed = discord.Embed(
-                    title="📸 ภาพหน้าจอ (Live Screenshot)",
-                    description=f"🎯 **เป้าหมาย:** {target_desc}\nบันทึกเฉพาะแท็บเกม Roblox/MuMu หรือหน้าจอหลัก (Main Screen)",
-                    color=discord.Color.blue(),
-                )
-                embed.set_image(url="attachment://roblox_screen.png")
-                embed.set_footer(text=f"แคปเมื่อ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                await interaction.followup.send(embed=embed, file=d_file, ephemeral=ephemeral)
-            finally:
-                if os.path.exists(temp_path):
-                    try:
-                        os.remove(temp_path)
-                    except Exception:
-                        pass
-
-        # Command: /status (สั้น)
-        @self.tree.command(
-            name="status",
-            description="ตรวจสอบสถานะการทำงานของ Roblox และโปรแกรมจำลอง",
-        )
-        @app_commands.describe(ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)")
-        async def status(interaction: discord.Interaction, ephemeral: bool = False):
-            await _handle_status(interaction, ephemeral)
-
-        # Command: /roblox_status
-        @self.tree.command(
-            name="roblox_status",
-            description="ตรวจสอบสถานะการทำงานของ Roblox และโปรแกรมจำลอง",
-        )
-        @app_commands.describe(ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)")
-        async def roblox_status(interaction: discord.Interaction, ephemeral: bool = False):
-            await _handle_status(interaction, ephemeral)
-
-        # Command: /screen (สั้น)
-        @self.tree.command(
-            name="screen",
-            description="แคปภาพหน้าจอเกม Roblox / คอมพิวเตอร์ส่งมาให้ดูทันที",
-        )
-        @app_commands.describe(ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)")
-        @app_commands.checks.cooldown(1, 5.0, key=lambda i: (i.guild_id, i.user.id))
-        async def screen(interaction: discord.Interaction, ephemeral: bool = False):
-            await _handle_screen(interaction, ephemeral)
-
-        # Command: /reconnect (สั่งเปิด Roblox PC และเข้าแมพทันที)
-        @self.tree.command(
-            name="reconnect",
-            description="สั่งเปิด Roblox PC และเชื่อมต่อไปยังเซิร์ฟเวอร์/แมพทันทีจากระยะไกล",
-        )
-        @app_commands.describe(
-            place_id="Place ID หรือเลขแมพที่ต้องการเข้า (เว้นว่างไว้เพื่อเข้าแมพล่าสุดที่เคยเล่น)",
-            ephemeral="แสดงผลเฉพาะคุณหรือไม่ (ค่าเริ่มต้น: False)",
-        )
-        @app_commands.checks.cooldown(1, 10.0, key=lambda i: (i.guild_id, i.user.id))
-        async def reconnect_cmd(
-            interaction: discord.Interaction,
-            place_id: Optional[str] = None,
-            ephemeral: bool = False,
-        ):
-            from roblox_service import launch_roblox
-            await interaction.response.defer(ephemeral=ephemeral)
-            ok, msg = launch_roblox(place_id)
-            if ok:
-                embed = discord.Embed(
-                    title="🚀 สั่งการเปิดเกม Roblox เรียบร้อย",
-                    description=f"{msg}\nตัวเกมกำลังถูกเปิดขึ้นมาบนคอมพิวเตอร์ของคุณ",
-                    color=discord.Color.green(),
-                )
-                embed.set_footer(text=f"สั่งการโดย {interaction.user.name} • {datetime.now().strftime('%H:%M:%S')}")
-                await interaction.followup.send(embed=embed, ephemeral=ephemeral)
-            else:
-                await interaction.followup.send(f"❌ {msg}", ephemeral=ephemeral)
 
         # Command: /gen_id (สุ่ม Username + Password สำหรับนำไปสมัครไอดี Roblox)
         @self.tree.command(
@@ -2946,72 +2757,6 @@ class KeyValidationBot(discord.Client):
 
         # 5. Channel shortcuts for #general-chat
         if ("general" in channel_name or channel_id == 1561760717051265034) and not lower_msg.startswith("/"):
-            if lower_msg in ["status", "สถานะ"]:
-                info = self.roblox_service.get_status_info()
-                is_run = info["is_running"]
-                color = discord.Color.green() if is_run else discord.Color.red()
-                status_txt = info["status_text"]
-
-                embed = discord.Embed(
-                    title="[สถานะ] ข้อมูลสถานะการทำงาน (Roblox & Emulator)",
-                    description=f"สถานะปัจจุบัน: **{status_txt}**",
-                    color=color,
-                )
-                embed.add_field(name=info["duration_title"], value=f"**{info['duration_str']}**", inline=True)
-                if is_run:
-                    embed.add_field(name="เริ่มเปิดเกมเมื่อ", value=f"`{info.get('started_at', 'ไม่ระบุ')}`", inline=True)
-                else:
-                    embed.add_field(name="สถานะตัวเกม", value="`ไม่อยู่ใน Roblox (ปิดอยู่)`", inline=True)
-                embed.add_field(name="เวลาที่ตรวจเช็ก", value=f"`{info['timestamp']}`", inline=False)
-                if is_run:
-                    p_lines = [f"• `{p['name']}` (PID: `{p['pid']}`, RAM: `{p['memory']}`)" for p in info["processes"]]
-                    embed.add_field(name="Process ที่กำลังรันอยู่", value="\n".join(p_lines), inline=False)
-                else:
-                    embed.add_field(name="รายละเอียด", value="ตรวจไม่พบ Process ใดๆ ของเกมในเครื่องขณะนี้", inline=False)
-                embed.set_footer(text="Roblox Real-time Tracker")
-                await message.reply(embed=embed)
-                return
-
-            if lower_msg in ["screen", "จอ", "แคป"]:
-                temp_path = os.path.join(tempfile.gettempdir(), f"roblox_screen_{int(time.time()*1000)}.png")
-                ok, target_desc = self.roblox_service.capture_screen_detailed(temp_path)
-                if ok and os.path.exists(temp_path):
-                    try:
-                        d_file = discord.File(temp_path, filename="screen.png")
-                        embed = discord.Embed(
-                            title="[ภาพหน้าจอ] Live Screenshot",
-                            description=f"เป้าหมาย: {target_desc}\nบันทึกเฉพาะแท็บเกม Roblox/MuMu หรือหน้าจอหลัก",
-                            color=discord.Color.blue(),
-                        )
-                        embed.set_image(url="attachment://screen.png")
-                        embed.set_footer(text=f"แคปเมื่อ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                        await message.reply(embed=embed, file=d_file)
-                    finally:
-                        if os.path.exists(temp_path):
-                            try:
-                                os.remove(temp_path)
-                            except Exception:
-                                pass
-                    return
-                else:
-                    await message.reply("[ข้อผิดพลาด] ไม่สามารถแคปภาพหน้าจอได้ในขณะนี้")
-                    return
-
-            if lower_msg in ["reconnect", "เข้าเกม", "เปิดเกม"]:
-                from roblox_service import launch_roblox
-                ok, msg = launch_roblox()
-                if ok:
-                    embed = discord.Embed(
-                        title="[สำเร็จ] สั่งการเปิดเกม Roblox เรียบร้อย",
-                        description=f"{msg}\nตัวเกมกำลังถูกเปิดขึ้นมาบนคอมพิวเตอร์ของคุณ",
-                        color=discord.Color.green(),
-                    )
-                    embed.set_footer(text=f"สั่งการโดย {message.author.name} | {datetime.now().strftime('%H:%M:%S')}")
-                    await message.reply(embed=embed)
-                else:
-                    await message.reply(f"[ข้อผิดพลาด] {msg}")
-                return
-
             if lower_msg in ["getkey", "ขอคีย์", "คีย์", "key"]:
                 embed = discord.Embed(
                     title="[รับคีย์] วิธีรับ Access Key ประจำวัน",
@@ -3746,105 +3491,6 @@ class KeyValidationBot(discord.Client):
         # Reply when bot is mentioned in channel
         if self.user and self.user in message.mentions:
             clean_content = message.clean_content.replace(f"@{self.user.name}", "").strip().lower()
-
-            # Direct mention check: @Oauth status
-            if "status" in clean_content or "สถานะ" in clean_content:
-                info = self.roblox_service.get_status_info()
-                is_run = info["is_running"]
-                color = discord.Color.green() if is_run else discord.Color.red()
-                status_txt = info["status_text"]
-
-                embed = discord.Embed(
-                    title="🎮 ข้อมูลสถานะการทำงาน (Roblox & Emulator)",
-                    description=f"สถานะปัจจุบัน: **{status_txt}**",
-                    color=color,
-                )
-                embed.add_field(
-                    name=info["duration_title"],
-                    value=f"**{info['duration_str']}**",
-                    inline=True,
-                )
-                if is_run:
-                    embed.add_field(
-                        name="🕒 เริ่มเปิดเกมเมื่อ",
-                        value=f"`{info.get('started_at', 'ไม่ระบุ')}`",
-                        inline=True,
-                    )
-                else:
-                    embed.add_field(
-                        name="⚠️ สถานะตัวเกม",
-                        value="`ไม่อยู่ใน Roblox (ปิดอยู่)`",
-                        inline=True,
-                    )
-
-                embed.add_field(
-                    name="⏰ เวลาที่ตรวจเช็ก",
-                    value=f"`{info['timestamp']}`",
-                    inline=False,
-                )
-
-                if is_run:
-                    p_lines = [
-                        f"• **{p['name']}** (PID: `{p['pid']}`, RAM: `{p['memory']}`, เริ่ม: `{p.get('start_time_str', '-')}`)"
-                        for p in info["processes"]
-                    ]
-                    embed.add_field(
-                        name="⚙️ Process ที่กำลังรันอยู่",
-                        value="\n".join(p_lines),
-                        inline=False,
-                    )
-                else:
-                    embed.add_field(
-                        name="ℹ️ รายละเอียด",
-                        value="❌ **ไม่อยู่ใน Roblox หรือโปรแกรมจำลอง** (ตรวจไม่พบ Process ใดๆ ในเครื่องขณะนี้)",
-                        inline=False,
-                    )
-
-                embed.set_footer(text="Roblox Real-time Uptime Tracker")
-                await message.reply(embed=embed)
-                return
-
-            # Direct mention check: @Oauth screen
-            if "screen" in clean_content or "จอ" in clean_content or "แคป" in clean_content:
-                temp_path = os.path.join(tempfile.gettempdir(), f"roblox_screen_{int(time.time()*1000)}.png")
-                ok, target_desc = self.roblox_service.capture_screen_detailed(temp_path)
-                if ok and os.path.exists(temp_path):
-                    try:
-                        d_file = discord.File(temp_path, filename="screen.png")
-                        embed = discord.Embed(
-                            title="📸 ภาพหน้าจอ (Live Screenshot)",
-                            description=f"🎯 **เป้าหมาย:** {target_desc}\nบันทึกเฉพาะแท็บเกม Roblox/MuMu หรือหน้าจอหลัก (Main Screen)",
-                            color=discord.Color.blue(),
-                        )
-                        embed.set_image(url="attachment://screen.png")
-                        embed.set_footer(text=f"แคปเมื่อ {datetime.now().strftime('%Y-%m-%d %H:%M:%S')}")
-                        await message.reply(embed=embed, file=d_file)
-                    finally:
-                        if os.path.exists(temp_path):
-                            try:
-                                os.remove(temp_path)
-                            except Exception:
-                                pass
-                    return
-                else:
-                    await message.reply("❌ ไม่สามารถแคปภาพหน้าจอได้ในขณะนี้")
-                    return
-
-            # Direct mention check: @Oauth reconnect
-            if "reconnect" in clean_content or "เข้าเกม" in clean_content or "เปิดเกม" in clean_content:
-                from roblox_service import launch_roblox
-                ok, msg = launch_roblox()
-                if ok:
-                    embed = discord.Embed(
-                        title="🚀 สั่งการเปิดเกม Roblox เรียบร้อย",
-                        description=f"{msg}\nตัวเกมกำลังถูกเปิดขึ้นมาบนคอมพิวเตอร์ของคุณ",
-                        color=discord.Color.green(),
-                    )
-                    embed.set_footer(text=f"สั่งการโดย {message.author.name} • {datetime.now().strftime('%H:%M:%S')}")
-                    await message.reply(embed=embed)
-                else:
-                    await message.reply(f"❌ {msg}")
-                return
 
             # Direct mention check: @Oauth gen
             if "gen" in clean_content or "สุ่ม" in clean_content:

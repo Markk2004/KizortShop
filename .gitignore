@@ -13,13 +13,22 @@ packages/*/dist/
 build/
 out/
 
-# Environment variables
+# Strict Environment & Secret Protection (Allow only .env.example)
 .env
-.env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*
 *.env
+*/.env
+*/.env.*
+*/*.env
+!.env.example
+!*/.env.example
+!*/*/.env.example
+
+# Certificates & Keys
+*.pem
+*.key
+*.crt
+*.p12
 
 # Debug logs
 npm-debug.log*
@@ -30,7 +39,6 @@ yarn-error.log*
 # System and OS files
 .DS_Store
 Thumbs.db
-*.pem
 
 # TypeScript cache
 *.tsbuildinfo
@@ -50,8 +58,8 @@ env/
 venv/
 ENV/
 .pytest_cache/
-*.sqlite3
+*.sqlite3*
+*.db*
 discord-bot/data/*
 !discord-bot/data/.gitkeep
 discord-bot/test_crop.png
-
