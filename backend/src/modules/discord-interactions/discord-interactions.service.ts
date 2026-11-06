@@ -126,7 +126,7 @@ export class DiscordInteractionsService {
         case 'status':
           return await this.handleStatusCheck();
         case 'stock':
-          return await this.handleStockList();
+          return await this.handleNavStock(interaction, undefined, 'all');
         case 'stock-log':
           return await this.handleStockLogs(Number(optionsMap.hours || 24));
         case 'orders':
@@ -218,7 +218,13 @@ export class DiscordInteractionsService {
       // 3. Stock Actions
       if (customId === 'adm:stock:filter_product') {
         const selectedSku = interaction.data?.values?.[0];
-        return await this.handleNavStock(interaction, selectedSku);
+        return await this.handleNavStock(interaction, selectedSku, 'all');
+      }
+      if (customId.startsWith('adm:stock:status:')) {
+        const parts = customId.split(':');
+        const stFilter = parts[3] || 'all';
+        const pCode = parts[4] && parts[4] !== 'ALL' ? parts[4] : undefined;
+        return await this.handleNavStock(interaction, pCode, stFilter);
       }
       if (customId === 'adm:stock:open_search') {
         return this.renderSearchStockModal();
@@ -228,7 +234,7 @@ export class DiscordInteractionsService {
       }
       if (customId === 'adm:stock:list' || customId.startsWith('adm:stock:list:')) {
         const prodId = customId.startsWith('adm:stock:list:') ? customId.split(':')[3] : undefined;
-        return await this.handleStockListRecent(interaction, prodId);
+        return await this.handleNavStock(interaction, prodId, 'all');
       }
       if (customId.startsWith('adm:stock:open_edit:')) {
         const stockId = customId.split(':')[3];
@@ -629,9 +635,39 @@ export class DiscordInteractionsService {
   }
 
   /**
-   * Stock Manager View (adm:nav:stock)
+   * Helper: Safely extract/decrypt password for spoiler display
    */
-  private async handleNavStock(interaction: any, selectedProductCode?: string) {
+  private extractPassword(cipherPayload?: string | null): string {
+    if (!cipherPayload) return '';
+    try {
+      let plain = cipherPayload;
+      if (plain.includes(':') && plain.split(':').length === 3) {
+        plain = decryptCredentialAes256Gcm(plain, this.encryptionSecret);
+      }
+      if (plain.includes('|')) {
+        const parts = plain.split('|');
+        return parts[1]?.trim() || parts[0]?.trim();
+      }
+      if (plain.includes(':')) {
+        const parts = plain.split(':');
+        return parts[1]?.trim() || parts[0]?.trim();
+      }
+      return plain.trim();
+    } catch {
+      return '';
+    }
+  }
+
+  /**
+   * Stock Manager View (adm:nav:stock) — Formatted like /stock_list with Decrypted Passwords in Spoiler Tags
+   */
+  private async handleNavStock(
+    interaction: any,
+    selectedProductCode?: string,
+    statusFilter: string = 'all',
+  ) {
+    const user = this.adminGuard.extractUser(interaction);
+
     const products = await this.prisma.product.findMany({
       where: { isActive: true },
       include: {
@@ -651,22 +687,92 @@ export class DiscordInteractionsService {
       ? products.find((p) => p.code === selectedProductCode || p.id === selectedProductCode)
       : null;
 
-    const stockLines = products.map((p) => {
-      const count = p._count.stocks;
-      const warning = count <= 2 ? '⚠️ **[ใกล้หมด]**' : '✅';
-      const pointer = filteredProduct && p.id === filteredProduct.id ? '👉 ' : '';
-      return `${pointer}${warning} **${p.title}** (\`${p.code}\`): คงเหลือ **${count}** ชิ้น | ราคา: ฿${Number(p.price)}`;
-    });
+    // Build where condition for account stocks query
+    const stockWhere: any = {};
+    if (filteredProduct) {
+      stockWhere.productId = filteredProduct.id;
+    }
+    if (statusFilter === 'unsold') {
+      stockWhere.status = 'AVAILABLE';
+    } else if (statusFilter === 'sold') {
+      stockWhere.status = 'SOLD';
+    }
+
+    const [totalStats, availableStats, soldStats, accounts] = await Promise.all([
+      this.prisma.accountStock.count(
+        filteredProduct ? { where: { productId: filteredProduct.id } } : undefined,
+      ),
+      this.prisma.accountStock.count({
+        where: {
+          status: 'AVAILABLE',
+          ...(filteredProduct ? { productId: filteredProduct.id } : {}),
+        },
+      }),
+      this.prisma.accountStock.count({
+        where: {
+          status: 'SOLD',
+          ...(filteredProduct ? { productId: filteredProduct.id } : {}),
+        },
+      }),
+      this.prisma.accountStock.findMany({
+        where: stockWhere,
+        include: { product: true },
+        orderBy: { createdAt: 'desc' },
+        take: 30,
+      }),
+    ]);
+
+    const lines: string[] = [];
+    for (let i = 0; i < accounts.length; i++) {
+      const acc = accounts[i];
+      const isSold = acc.status === 'SOLD' || Boolean(acc.soldAt);
+      const statusIcon = isSold ? '🔴' : '🟢';
+      const statusLabel = isSold ? 'ขายแล้ว' : 'พร้อมขาย';
+      const password = this.extractPassword(acc.credentials);
+      const passStr = password ? ` | รหัส: ||\`${password}\`||` : '';
+      const mapStr = acc.farmedMaps ? ` • 🗺️ \`${acc.farmedMaps}\`` : '';
+      const priceVal = acc.product?.price || acc.sellingPriceText;
+      const priceStr = priceVal ? ` • 💰 ฿${Number(priceVal)}` : '';
+      const displayName = acc.username || acc.maskedIdentity || acc.serialCode;
+      lines.push(
+        `\`${i + 1}.\` ${statusIcon} **[${statusLabel}]** **${displayName}**${passStr}${mapStr}${priceStr}`,
+      );
+    }
+
+    const title =
+      statusFilter === 'all'
+        ? '📋 รายการคลังสต็อกสินค้าทั้งหมด (Stock Manager: All)'
+        : statusFilter === 'unsold'
+        ? '🟢 รายการคลังสต็อกสินค้าพร้อมขาย (Stock Manager: Available)'
+        : '📜 ประวัติคลังสต็อกสินค้าที่ขายแล้ว (Stock Manager: Sold)';
+
+    const color =
+      statusFilter === 'all'
+        ? DISCORD_COLORS.INFO
+        : statusFilter === 'unsold'
+        ? DISCORD_COLORS.SUCCESS
+        : DISCORD_COLORS.DANGER;
+
+    const filterProductHeader = filteredProduct
+      ? `🔍 **สินค้า:** **${filteredProduct.title}** (\`${filteredProduct.code}\`) | ราคา ฿${Number(filteredProduct.price)}\n\n`
+      : '';
+
+    const description = `${filterProductHeader}${
+      lines.length > 0 ? lines.join('\n') : '📦 ไม่พบรายการไอดีตามเงื่อนไขที่เลือกในระบบ'
+    }`;
 
     const embed = {
-      title: '📦 ระบบจัดการคลังสินค้า (Stock Manager)',
-      description: `${stockLines.length > 0 ? stockLines.join('\n') : 'ยังไม่มีรายการสินค้าในระบบ กรุณาเพิ่มสินค้าก่อน'}${
-        filteredProduct
-          ? `\n\n🔍 **กำลังกรองเฉพาะสินค้า:** **${filteredProduct.title}** (\`${filteredProduct.code}\`)`
-          : ''
-      }`,
-      color: DISCORD_COLORS.INFO,
-      footer: { text: 'KaiZort Admin • Stock Operations' },
+      title,
+      description,
+      color,
+      fields: [
+        { name: '📦 รวมทั้งหมด', value: `\`${totalStats}\` บัญชี`, inline: true },
+        { name: '🟢 พร้อมขาย', value: `\`${availableStats}\` บัญชี`, inline: true },
+        { name: '🔴 ขายแล้ว', value: `\`${soldStats}\` บัญชี`, inline: true },
+      ],
+      footer: {
+        text: `แสดง ${accounts.length} รายการล่าสุด • คลิกที่แถบดำ ||...|| เพื่อเปิดดูรหัสผ่าน • ตรวจสอบโดย ${user.username}`,
+      },
       timestamp: new Date().toISOString(),
     };
 
@@ -685,6 +791,8 @@ export class DiscordInteractionsService {
       })),
     ];
 
+    const currentProductVal = filteredProduct?.code || 'ALL';
+
     const components: any[] = [
       {
         type: 1, // Action Row 1: Filter Select Menu
@@ -698,7 +806,36 @@ export class DiscordInteractionsService {
         ],
       },
       {
-        type: 1, // Action Row 2: Main Buttons
+        type: 1, // Action Row 2: Status View Toggle Buttons
+        components: [
+          {
+            type: 2,
+            style: statusFilter === 'all' ? 1 : 2,
+            label: '📦 ทั้งหมด',
+            custom_id: `adm:stock:status:all:${currentProductVal}`,
+          },
+          {
+            type: 2,
+            style: statusFilter === 'unsold' ? 3 : 2,
+            label: '🟢 เฉพาะพร้อมขาย',
+            custom_id: `adm:stock:status:unsold:${currentProductVal}`,
+          },
+          {
+            type: 2,
+            style: statusFilter === 'sold' ? 4 : 2,
+            label: '🔴 เฉพาะขายแล้ว',
+            custom_id: `adm:stock:status:sold:${currentProductVal}`,
+          },
+          {
+            type: 2,
+            style: 2,
+            label: '🔄 รีเฟรช',
+            custom_id: `adm:stock:status:${statusFilter}:${currentProductVal}`,
+          },
+        ],
+      },
+      {
+        type: 1, // Action Row 3: Main Action Buttons
         components: [
           {
             type: 2,
@@ -714,12 +851,6 @@ export class DiscordInteractionsService {
           },
           {
             type: 2,
-            style: 2, // Secondary
-            label: isFiltered ? `📋 ลิสต์สต็อก (${filteredProduct?.code})` : '📋 ลิสต์สต็อกล่าสุด & แก้ไข/ลบ',
-            custom_id: isFiltered ? `adm:stock:list:${filteredProduct?.id}` : 'adm:stock:list',
-          },
-          {
-            type: 2,
             style: 2,
             label: '🤖 ฟอร์มบอท Python',
             custom_id: 'adm:nav:pybot',
@@ -727,7 +858,7 @@ export class DiscordInteractionsService {
         ],
       },
       {
-        type: 1, // Action Row 3: Back to Hub
+        type: 1, // Action Row 4: Back to Hub
         components: [
           {
             type: 2,
@@ -739,9 +870,12 @@ export class DiscordInteractionsService {
       },
     ];
 
+    const isSlashCommand = interaction.type === 2;
+
     return {
-      type: 7,
+      type: isSlashCommand ? 4 : 7,
       data: {
+        flags: 64, // Ephemeral: Only admin can see decrypted credentials!
         embeds: [embed],
         components,
       },
