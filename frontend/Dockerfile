@@ -11,7 +11,7 @@ COPY package*.json ./
 RUN npm install
 
 # ==========================================
-# Stage 2: Build Next.js Application
+# Stage 2: Build Next.js Application (Standalone)
 # ==========================================
 FROM node:20-alpine AS builder
 
@@ -36,7 +36,7 @@ ENV NEXT_TELEMETRY_DISABLED=1
 RUN npm run build
 
 # ==========================================
-# Stage 3: Production Runner
+# Stage 3: Production Runner (Minimal Standalone)
 # ==========================================
 FROM node:20-alpine AS runner
 
@@ -49,15 +49,13 @@ ENV NEXT_TELEMETRY_DISABLED=1
 ENV PORT=3000
 ENV HOSTNAME="0.0.0.0"
 
-COPY --from=builder /app/package*.json ./
-COPY --from=builder /app/node_modules ./node_modules
-COPY --from=builder /app/.next ./.next
 COPY --from=builder /app/public ./public
-COPY --from=builder /app/next.config.ts ./next.config.ts
+COPY --from=builder /app/.next/standalone ./
+COPY --from=builder /app/.next/static ./.next/static
 
 EXPOSE 3000
 
 HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
   CMD wget --no-verbose --tries=1 --spider http://127.0.0.1:3000/ || exit 1
 
-CMD ["npm", "run", "start"]
+CMD ["node", "server.js"]

@@ -701,10 +701,10 @@ export class DiscordWebhookService implements OnModuleInit {
   }
 
   /**
-   * แจ้งเตือนการบันทึกหรือลบค่าใช้จ่ายร้าน (#kaitun-id และ #web-orders)
+   * แจ้งเตือนการบันทึก แก้ไข หรือลบค่าใช้จ่ายร้าน (#kaitun-id และ #web-orders)
    */
   async notifyExpenseAction(
-    action: 'CREATED' | 'DELETED',
+    action: 'CREATED' | 'UPDATED' | 'DELETED',
     data: {
       title: string;
       category: string;
@@ -714,6 +714,7 @@ export class DiscordWebhookService implements OnModuleInit {
     },
   ) {
     const isCreated = action === 'CREATED';
+    const isUpdated = action === 'UPDATED';
     const categoryLabels: Record<string, string> = {
       SCRIPT: 'ค่าสคริปต์ฟาร์ม',
       VPS: 'ค่า VPS / เซิร์ฟเวอร์',
@@ -723,9 +724,15 @@ export class DiscordWebhookService implements OnModuleInit {
     };
     const catLabel = categoryLabels[data.category] || data.category;
     const title = isCreated
-      ? `[บันทึกค่าใช้จ่ายใหม่จากเว็บ] ${data.title}`
-      : `[ลบรายการค่าใช้จ่ายจากเว็บ] ${data.title}`;
-    const color = isCreated ? DISCORD_COLORS.WARNING : DISCORD_COLORS.DANGER;
+      ? `[บันทึกค่าใช้จ่ายใหม่] ${data.title}`
+      : isUpdated
+      ? `[แก้ไขรายการค่าใช้จ่าย] ${data.title}`
+      : `[ลบรายการค่าใช้จ่าย] ${data.title}`;
+    const color = isCreated
+      ? DISCORD_COLORS.WARNING
+      : isUpdated
+      ? DISCORD_COLORS.INFO
+      : DISCORD_COLORS.DANGER;
 
     const fields: DiscordEmbedField[] = [
       { name: 'รายการค่าใช้จ่าย', value: `**${data.title}**`, inline: true },

@@ -52,9 +52,21 @@ export class DiscordInteractionsController {
       return res.status(200).json({ type: 1 });
     }
 
-    // Discord Interaction Type 2: APPLICATION_COMMAND
+    // Discord Interaction Type 2: APPLICATION_COMMAND (Slash command)
     if (body.type === 2) {
       const response = await this.interactionsService.handleCommand(body);
+      return res.status(200).json(response);
+    }
+
+    // Discord Interaction Type 3: MESSAGE_COMPONENT (Buttons / Select menus)
+    if (body.type === 3) {
+      const response = await this.interactionsService.handleComponent(body);
+      return res.status(200).json(response);
+    }
+
+    // Discord Interaction Type 5: MODAL_SUBMIT (Form submissions)
+    if (body.type === 5) {
+      const response = await this.interactionsService.handleModalSubmit(body);
       return res.status(200).json(response);
     }
 

@@ -1,6 +1,18 @@
-# Discord Key Validation Bot
+# Discord Key Validation Bot (`KaiZort Support`)
 
-บอท Discord สำหรับรับ key ที่ผู้ใช้ได้มาด้วยตนเอง หรือประมวลผลลิงก์ผ่าน API ที่ได้รับอนุญาต ตรวจสอบรูปแบบ (Format Validation) บันทึก hash ลง SQLite ป้องกันการนำ key เดิมมาใช้ซ้ำ (Redeem Prevention) และตอบผลลัพธ์ผ่านคำสั่ง Slash Command `/getkey`, `/process`, `/redeem`, `/ask` และ `/help`
+บอท Discord ภาษา Python (**KaiZort Support**) สำหรับรับ key ที่ผู้ใช้ได้มาด้วยตนเอง หรือประมวลผลลิงก์ผ่าน API ที่ได้รับอนุญาต ตรวจสอบรูปแบบ (Format Validation) บันทึก hash ลง SQLite ป้องกันการนำ key เดิมมาใช้ซ้ำ (Redeem Prevention) และตอบผลลัพธ์ผ่านคำสั่ง Slash Command `/getkey`, `/process`, `/redeem`, `/ask` และ `/help`
+
+---
+
+## สถาปัตยกรรมระบบบอททั้ง 3 ตัวในเครือ KaiZort (3-Bot Architecture)
+
+เพื่อให้การจัดการร้านค้าและการแจ้งเตือนไม่ชนกับ Rate Limit ของ Discord ระบบแบ่งหน้าที่บอทออกเป็น 3 ตัวชัดเจน:
+
+| ชื่อบอทที่แนะนำ | ตัวแปร Token / ตำแหน่งโค้ด | หน้าที่หลัก |
+| :--- | :--- | :--- |
+| **1. `KaiZort Alerts`** | `DISCORD_BOT_TOKEN` (`kaitan-backend` - `notifyBot`) | ส่งแจ้งเตือนออเดอร์ใหม่ สลิปโอนเงิน สต็อกใกล้หมด และรายงานสรุปยอดผ่านระบบ Outbox Queue |
+| **2. `KaiZort Admin`** | `DISCORD_OPS_BOT_TOKEN` (`kaitan-backend` - `opsBot`) | รับคำสั่งแอดมินแบบรวมศูนย์ผ่าน **`/admin`** (จัดการสต็อก เพิ่ม/แก้ไข/ลบ, รายจ่าย, อนุมัติ/ปฏิเสธสลิป, ค้นหา/คืนเงิน/ยกเลิก/ส่งรหัสซ้ำออเดอร์, สรุปกำไร-ขาดทุน) และ `/ping` |
+| **3. `KaiZort Support`** | `DISCORD_TOKEN` (`discord-bot/bot.py` - Python Bot) | ให้บริการลูกค้า (`/getkey`, `/process`, `/redeem`, `/ask`, `/help`) และฟอร์มซิงค์ไอดีไก่ตันในห้อง `#kaitun-id` |
 
 > **หมายเหตุความปลอดภัย:** บอทนี้ทำงานเป็นระบบตรวจสอบและบันทึกคีย์ที่ผู้ใช้กรอกเข้ามา หรือเชื่อมต่อผ่าน API ภายนอกที่ได้รับอนุญาตอย่างเป็นทางการเท่านั้น **ไม่มี** และ **ไม่สนับสนุน** ระบบเปิดหน้าเว็บอัตโนมัติ, การกดโฆษณา, CAPTCHA bypass, redirect bypass, Zapi bypass หรือการดึงคีย์อัตโนมัติจาก Platoboost, Luarmor, LootLabs หรือบริการภายนอกใดๆ ทั้งสิ้น
 

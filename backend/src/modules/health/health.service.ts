@@ -1,4 +1,4 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { Cron } from '@nestjs/schedule';
 import { PrismaService } from '../../common/prisma/prisma.service';
@@ -40,7 +40,7 @@ export interface HealthCheckResult {
 }
 
 @Injectable()
-export class HealthService {
+export class HealthService implements OnModuleInit {
   private readonly logger = new Logger(HealthService.name);
   private previousSystemStatus: 'HEALTHY' | 'DEGRADED' | 'UNHEALTHY' = 'HEALTHY';
 
@@ -51,6 +51,16 @@ export class HealthService {
     private readonly webhookService: DiscordWebhookService,
     private readonly config: ConfigService,
   ) {}
+
+  async onModuleInit(): Promise<void> {
+    const guildId = this.config.get<string>('DISCORD_GUILD_ID');
+    if (guildId) {
+      await Promise.allSettled([
+        this.discordRest.syncBotNickname('notify', 'KaiZort Alerts', guildId),
+        this.discordRest.syncBotNickname('ops', 'KaiZort Admin', guildId),
+      ]);
+    }
+  }
 
   /**
    * Lightweight liveness check for UptimeRobot and Render health checks
@@ -195,7 +205,7 @@ export class HealthService {
         ? 'UNCONFIGURED'
         : 'DOWN',
       details: notifyHealth.ok
-        ? `Logged in as ${notifyHealth.username}`
+        ? `[KaiZort Alerts] Logged in as ${notifyHealth.username}`
         : notifyHealth.error,
     };
     if (result.components.discordBots.notifyBot.status === 'DOWN') {
@@ -209,7 +219,7 @@ export class HealthService {
         ? 'UNCONFIGURED'
         : 'DOWN',
       details: opsHealth.ok
-        ? `Logged in as ${opsHealth.username}`
+        ? `[KaiZort Admin] Logged in as ${opsHealth.username}`
         : opsHealth.error,
     };
     if (result.components.discordBots.opsBot.status === 'DOWN') {
@@ -260,7 +270,7 @@ export class HealthService {
   /**
    * Health Watchdog running every 5 minutes: notifies admins if system breaks or recovers
    */
-  @Cron('*/5 * * * *')
+  @Cron('*/15 * * * *')
   async runHealthWatchdog(): Promise<void> {
     try {
       const health = await this.getDeepHealth();

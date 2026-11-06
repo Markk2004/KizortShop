@@ -24,6 +24,14 @@ if (!OPS_BOT_TOKEN) {
 
 const opsCommands = [
   {
+    name: 'ping',
+    description: 'ปลุก/เช็คบอท: ถ้า /admin ไม่ตอบ ให้รอ 10 วินาทีแล้วพิมพ์ /ping ก่อน',
+  },
+  {
+    name: 'admin',
+    description: 'เปิดแผงควบคุมร้าน (ถ้าไม่ตอบ: รอ 10 วิ แล้วพิมพ์ /ping จากนั้นลองใหม่)',
+  },
+  {
     name: 'web',
     description: 'ตรวจสอบสถานะหน้าร้าน (Frontend), API Latency และ Supabase Database',
   },

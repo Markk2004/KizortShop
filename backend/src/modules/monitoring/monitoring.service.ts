@@ -68,7 +68,7 @@ export class MonitoringService {
   /**
    * Every 30 minutes: Alert on open tickets older than TICKET_STALE_HOURS (default 6h)
    */
-  @Cron('*/30 * * * *')
+  @Cron('0 * * * *')
   async checkStaleTickets(): Promise<void> {
     try {
       const staleHours = parseInt(process.env.TICKET_STALE_HOURS || '6', 10);

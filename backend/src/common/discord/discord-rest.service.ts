@@ -96,7 +96,7 @@ export class DiscordRestService {
     channelKey: DiscordChannelKey,
     payload: DiscordMessagePayload,
     botType: DiscordBotType = 'notify',
-  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean; skipped?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean; retryAfterSec?: number; skipped?: boolean }> {
     try {
       const config = await this.prisma.webhookChannelConfig.findUnique({
         where: { channelKey },
@@ -154,7 +154,7 @@ export class DiscordRestService {
     payload: DiscordMessagePayload,
     token: string,
     channelKey: string,
-  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean; retryAfterSec?: number }> {
     const url = `${this.baseUrl}/channels/${channelId}/messages`;
 
     const res = await fetch(url, {
@@ -177,6 +177,7 @@ export class DiscordRestService {
         success: false,
         error: `Rate limited, retry after ${retryAfter}s`,
         rateLimited: true,
+        retryAfterSec: retryAfter,
       };
     }
 
@@ -201,7 +202,7 @@ export class DiscordRestService {
     webhookUrl: string,
     payload: DiscordMessagePayload,
     channelKey: string,
-  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean }> {
+  ): Promise<{ success: boolean; error?: string; rateLimited?: boolean; retryAfterSec?: number }> {
     const formattedPayload = {
       username: 'KaiZort System',
       avatar_url:
@@ -228,6 +229,7 @@ export class DiscordRestService {
         success: false,
         error: `Rate limited, retry after ${retryAfter}s`,
         rateLimited: true,
+        retryAfterSec: retryAfter,
       };
     }
 
@@ -243,5 +245,43 @@ export class DiscordRestService {
     }
 
     return { success: true };
+  }
+
+  /**
+   * Sync bot server nicknames on Discord guild
+   */
+  async syncBotNickname(
+    botType: DiscordBotType,
+    nickname: string,
+    guildId?: string,
+  ): Promise<{ success: boolean; error?: string }> {
+    const token = this.getBotToken(botType);
+    const targetGuildId = guildId || this.config.get<string>('DISCORD_GUILD_ID');
+    if (!token || !targetGuildId) {
+      return { success: false, error: 'Token or Guild ID not configured' };
+    }
+
+    try {
+      const res = await fetch(`${this.baseUrl}/guilds/${targetGuildId}/members/@me`, {
+        method: 'PATCH',
+        headers: {
+          Authorization: `Bot ${token}`,
+          'Content-Type': 'application/json',
+          'User-Agent': 'DiscordBot (https://kaizort-shop.com, 1.0.0)',
+        },
+        body: JSON.stringify({ nick: nickname }),
+      });
+
+      if (!res.ok) {
+        const text = await res.text();
+        return { success: false, error: `HTTP ${res.status}: ${text}` };
+      }
+
+      this.logger.log(`Synced nickname for [${botType}] to '${nickname}' in guild ${targetGuildId}`);
+      return { success: true };
+    } catch (err: any) {
+      this.logger.warn(`Failed to sync nickname for [${botType}]: ${err.message}`);
+      return { success: false, error: err.message };
+    }
   }
 }

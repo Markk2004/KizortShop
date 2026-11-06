@@ -73,7 +73,10 @@ export class DiscordOutboxService {
       }
 
       // If immediate dispatch failed due to network / rate limit, queue for retry
-      const backoffSeconds = result.rateLimited ? 10 : 15;
+      const backoffSeconds = Math.max(
+        result.rateLimited ? 10 : 15,
+        Math.ceil(result.retryAfterSec || 0) + 1,
+      );
       const nextRetryAt = new Date(Date.now() + backoffSeconds * 1000);
 
       await this.prisma.discordOutbox.update({
@@ -100,7 +103,7 @@ export class DiscordOutboxService {
    * Background worker running every 20 seconds to retry pending messages.
    * Atomically claims rows by transitioning PENDING -> PROCESSING before sending.
    */
-  @Cron('*/20 * * * * *')
+  @Cron('0 * * * * *')
   async processOutboxQueue(): Promise<void> {
     if (this.isProcessing) return;
     this.isProcessing = true;
@@ -185,21 +188,28 @@ export class DiscordOutboxService {
           const attempts = item.attempts + 1;
           const isFailed = attempts >= item.maxAttempts;
 
-          // Exponential backoff: 30s * 2^(attempts-1), max 5 min
-          const backoffSec = Math.min(300, 30 * Math.pow(2, attempts - 1));
+          // Exponential backoff: 30s * 2^(attempts-1), max 5 min,
+          // but never earlier than Discord's retry-after (avoids hammering during 429)
+          const backoffSec = Math.max(
+            Math.min(300, 30 * Math.pow(2, attempts - 1)),
+            Math.ceil(result.retryAfterSec || 0) + 1,
+          );
+          // Rate-limit waits don't consume retry attempts
+          const attemptsToStore = result.rateLimited ? item.attempts : attempts;
+          const isFailedFinal = !result.rateLimited && isFailed;
           const nextRetryAt = new Date(Date.now() + backoffSec * 1000);
 
           await this.prisma.discordOutbox.update({
             where: { id: item.id },
             data: {
-              status: isFailed ? 'FAILED' : 'PENDING',
-              attempts,
+              status: isFailedFinal ? 'FAILED' : 'PENDING',
+              attempts: attemptsToStore,
               lastError: result.error || 'Delivery retry failed',
               nextRetryAt,
             },
           });
 
-          if (isFailed) {
+          if (isFailedFinal) {
             this.logger.error(
               `Outbox item ${item.id} permanently failed after ${attempts} attempts: ${result.error}`,
             );

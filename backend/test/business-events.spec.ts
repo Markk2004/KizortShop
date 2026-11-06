@@ -128,6 +128,7 @@ describe('Business Events & Discord Notifications Unit Tests', () => {
               if (key === 'BOT_API_KEY') return 'secret_test_bot_key_12345';
               if (key === 'LOW_STOCK_THRESHOLD') return '2';
               if (key === 'LARGE_TOPUP_AMOUNT') return '2000';
+              if (key === 'STOCK_ENCRYPTION_SECRET') return 'test_encryption_secret_32bytes_123';
               return null;
             }),
           },
