@@ -53,3 +53,32 @@ services:
         sync: false
       - key: DISCORD_ADMIN_USER_IDS
         sync: false
+
+  - type: web
+    name: kaizort-discord-bot
+    env: python
+    rootDir: discord-bot
+    plan: free
+    region: singapore
+    buildCommand: pip install -r requirements.txt
+    startCommand: python bot.py
+    healthCheckPath: /health
+    envVars:
+      - key: DISCORD_TOKEN
+        sync: false
+      - key: DATABASE_PATH
+        value: data/bot.sqlite3
+      - key: KEY_PREFIX
+        value: FREE_
+      - key: KEY_HEX_LENGTH
+        value: "32"
+      - key: SUPABASE_URL
+        sync: false
+      - key: SUPABASE_SERVICE_ROLE_KEY
+        sync: false
+      - key: STOCK_ENCRYPTION_SECRET
+        sync: false
+      - key: BACKEND_API_URL
+        value: https://kizortshop-1.onrender.com
+      - key: BOT_API_KEY
+        sync: false

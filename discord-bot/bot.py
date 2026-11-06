@@ -1398,6 +1398,25 @@ class KeyValidationBot(discord.Client):
         self.add_view(ExpenseInteractiveView(self.db))
         logger.info("Persistent views successfully registered in setup_hook with active event loop.")
 
+        # Cloud Health Check Server (Render Web Service compatibility)
+        port_env = os.getenv("PORT")
+        if port_env:
+            try:
+                from aiohttp import web
+                health_app = web.Application()
+                async def _health_resp(_req):
+                    return web.Response(text="HEALTHY", status=200)
+                health_app.router.add_get("/", _health_resp)
+                health_app.router.add_get("/health", _health_resp)
+                runner = web.AppRunner(health_app)
+                await runner.setup()
+                port = int(port_env)
+                site = web.TCPSite(runner, "0.0.0.0", port)
+                await site.start()
+                logger.info("Cloud health check server listening on port %d", port)
+            except Exception as e:
+                logger.warning("Failed to start cloud health check server: %s", e)
+
     def _register_commands(self) -> None:
         async def _execute_get_key_flow(
             interaction: discord.Interaction, ephemeral: bool
