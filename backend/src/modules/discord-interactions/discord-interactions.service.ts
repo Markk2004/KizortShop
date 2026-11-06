@@ -1241,21 +1241,22 @@ export class DiscordInteractionsService {
       where,
       include: { product: true },
       orderBy: { createdAt: 'desc' },
-      take: 5,
+      take: 25,
     });
 
     const targetProduct = productId ? await this.prisma.product.findUnique({ where: { id: productId } }) : null;
     const title = targetProduct
-      ? `📋 สต็อกพร้อมขาย (${targetProduct.title}) (5 รายการล่าสุด)`
-      : '📋 สต็อกสินค้าพร้อมขายล่าสุด (5 รายการ)';
+      ? `📋 รายการสต็อกพร้อมขาย (${targetProduct.title})`
+      : '📋 รายการสต็อกสินค้าพร้อมขายล่าสุด';
 
     if (recent.length === 0) {
       return {
         type: 7,
         data: {
+          flags: 64,
           embeds: [
             {
-              title: '📋 สต็อกสินค้าพร้อมขายล่าสุด',
+              title,
               description: 'ขณะนี้ไม่มีสต็อกพร้อมขายในระบบ',
               color: DISCORD_COLORS.NEUTRAL,
             },
@@ -1272,10 +1273,18 @@ export class DiscordInteractionsService {
       };
     }
 
-    const lines = recent.map(
-      (s, i) =>
-        `**${i + 1}.** \`${s.serialCode}\` | **${s.product?.title}** | ไอดี: \`${s.maskedIdentity}\``,
-    );
+    const lines = recent.map((s, i) => {
+      const isSold = s.status === 'SOLD' || Boolean(s.soldAt);
+      const statusIcon = isSold ? '🔴' : '🟢';
+      const statusLabel = isSold ? 'ขายแล้ว' : 'พร้อมขาย';
+      const password = this.extractPassword(s.credentials);
+      const passStr = password ? ` | รหัส: ||\`${password}\`||` : '';
+      const mapStr = s.farmedMaps ? ` • 🗺️ \`${s.farmedMaps}\`` : '';
+      const priceVal = s.product?.price || s.sellingPriceText;
+      const priceStr = priceVal ? ` • 💰 ฿${Number(priceVal)}` : '';
+      const displayName = s.username || s.maskedIdentity || s.serialCode;
+      return `\`${i + 1}.\` ${statusIcon} **[${statusLabel}]** **${displayName}**${passStr}${mapStr}${priceStr}`;
+    });
 
     const editButtons = recent.slice(0, 5).map((s, i) => ({
       type: 2,
@@ -1294,17 +1303,18 @@ export class DiscordInteractionsService {
     return {
       type: 7,
       data: {
+        flags: 64,
         embeds: [
           {
             title,
-            description: lines.join('\n\n'),
+            description: lines.join('\n'),
             color: DISCORD_COLORS.INFO,
-            footer: { text: 'กดปุ่มแก้ไขหรือลบด้านล่าง (การลบมีระบบยืนยันความปลอดภัย)' },
+            footer: { text: `แสดง ${recent.length} รายการ • คลิกที่แท่งดำ ||...|| เพื่อเปิดดูรหัสผ่าน` },
           },
         ],
         components: [
-          { type: 1, components: editButtons },
-          { type: 1, components: deleteButtons },
+          ...(editButtons.length > 0 ? [{ type: 1, components: editButtons }] : []),
+          ...(deleteButtons.length > 0 ? [{ type: 1, components: deleteButtons }] : []),
           {
             type: 1,
             components: [
