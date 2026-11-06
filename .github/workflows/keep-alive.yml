@@ -1,0 +1,18 @@
+name: Keep Render Awake
+
+# Render free tier sleeps after ~15 min idle; a cold start takes longer than
+# Discord's 3-second interaction deadline ("application did not respond").
+# Ping the backend regularly so /admin responds instantly.
+on:
+  schedule:
+    - cron: "*/5 * * * *"
+  workflow_dispatch:
+
+jobs:
+  ping:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Ping backend health
+        run: |
+          curl -fsS --max-time 60 --retry 3 --retry-delay 5 \
+            https://kizortshop-1.onrender.com/api/v1/health
