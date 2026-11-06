@@ -46,6 +46,9 @@ export class DiscordInteractionsController {
     }
 
     const body = req.body;
+    this.logger.log(
+      `Incoming interaction: Type=${body.type}, Name=${body.data?.name || body.data?.custom_id || 'none'}, User=${body.member?.user?.id || body.user?.id || 'unknown'}`,
+    );
 
     // Discord Interaction Type 1: PING (URL validation handshake)
     if (body.type === 1) {
