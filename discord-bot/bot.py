@@ -57,7 +57,7 @@ def generate_bot_reply(user_message: str, prefix: str, hex_length: int) -> str:
         return (
             "[STORE] **สินค้าและบริการของ KaiZort Store:**\n"
             "• ไอดีไก่ตัน Roblox (Blox Fruits, King Legacy, Anime Vanguards)\n"
-            "• ระบบส่งมอบสินค้าอัตโนมัติ 24 ชม. ผ่านเว็บไซต์ทางการ\n"
+            "• ระบบส่งมอบสินค้าอัตโนมัติ 24 ชม. ผ่านเว็บไซต์: https://kizort-shop.vercel.app\n"
             "• ตรวจสอบสินค้าในห้อง `#store-website` หรือสอบถามแอดมินใน `#support-tickets` ได้เลยครับ"
         )
 
@@ -286,7 +286,7 @@ def build_channel_help_embed(section: str, channel_name: str = "", user_name: st
         embed.add_field(
             name="[ข้อมูลระบบร้านค้าและบริการ]",
             value=(
-                "• เว็บไซต์ทางการ: KaiZort Store (เปิดบริการตลอด 24 ชั่วโมง)\n"
+                "• เว็บไซต์ทางการ: https://kizort-shop.vercel.app (เปิดบริการตลอด 24 ชั่วโมง)\n"
                 "• ระบบจัดส่ง: ระบบส่งมอบไอดีและสินค้าอัตโนมัติทันทีหลังชำระเงิน\n"
                 "• ช่องทางชำระเงิน: สแกน PromptPay QR Code, บัญชีธนาคาร, TrueMoney Wallet, ซองของขวัญ\n"
                 "• สินค้าที่มีจำหน่าย: ไอดีไก่ตัน Roblox (Blox Fruits, King Legacy, Anime Vanguards), เติม Robux, ไอเทมพิเศษ"

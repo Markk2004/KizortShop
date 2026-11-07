@@ -570,6 +570,12 @@ export class DiscordInteractionsService {
           },
           {
             type: 2,
+            style: 5, // Link Button
+            label: '🌐 เปิดเว็บหน้าร้าน',
+            url: this.config.get<string>('FRONTEND_URL') || 'https://kizort-shop.vercel.app',
+          },
+          {
+            type: 2,
             style: 2,
             label: '🔄 รีเฟรชสถานะ',
             custom_id: 'adm:nav:hub',
