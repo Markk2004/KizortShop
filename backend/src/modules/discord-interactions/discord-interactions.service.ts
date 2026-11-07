@@ -1,5 +1,6 @@
-import { Injectable, Logger } from '@nestjs/common';
+import { Injectable, Logger, OnModuleInit } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
+import { Cron } from '@nestjs/schedule';
 import * as crypto from 'crypto';
 import { PrismaService } from '../../common/prisma/prisma.service';
 import { DiscordOutboxService } from '../../common/discord/discord-outbox.service';
@@ -17,9 +18,26 @@ import {
 import * as nacl from 'tweetnacl';
 
 @Injectable()
-export class DiscordInteractionsService {
+export class DiscordInteractionsService implements OnModuleInit {
   private readonly logger = new Logger(DiscordInteractionsService.name);
   private readonly encryptionSecret: string;
+
+  // Hot in-memory cache so /admin and /stock respond in <15ms (never exceeding Discord's 3s limit)
+  private hubCache: {
+    availableStockCount: number;
+    pendingTopupsCount: number;
+    recentOrdersCount: number;
+    monthExpensesAmount: number;
+    updatedAt: number;
+  } | null = null;
+
+  private stockCache: {
+    products: any[];
+    accounts: any[];
+    updatedAt: number;
+  } | null = null;
+
+  private isRefreshingCache = false;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -34,6 +52,78 @@ export class DiscordInteractionsService {
       this.config.get<string>('STOCK_ENCRYPTION_SECRET') ||
       process.env.STOCK_ENCRYPTION_SECRET ||
       'kaizort-vault-default-secret-salt-2026';
+  }
+
+  async onModuleInit(): Promise<void> {
+    void this.refreshHotCache();
+  }
+
+  @Cron('*/40 * * * * *')
+  async refreshHotCache(): Promise<void> {
+    if (this.isRefreshingCache) return;
+    this.isRefreshingCache = true;
+    try {
+      const [
+        availableStockCount,
+        pendingTopupsCount,
+        recentOrdersCount,
+        monthExpenses,
+        products,
+        accounts,
+      ] = await Promise.all([
+        this.prisma.accountStock.count({ where: { status: 'AVAILABLE' } }),
+        this.prisma.topupTransaction.count({ where: { status: 'PENDING_VERIFY' } }),
+        this.prisma.order.count({
+          where: {
+            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
+          },
+        }),
+        this.prisma.expense.aggregate({
+          where: {
+            paidAt: {
+              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
+            },
+          },
+          _sum: { amount: true },
+        }),
+        this.prisma.product.findMany({
+          where: { isActive: true },
+          include: {
+            _count: {
+              select: {
+                stocks: {
+                  where: { status: 'AVAILABLE' },
+                },
+              },
+            },
+          },
+          orderBy: { sortOrder: 'asc' },
+        }),
+        this.prisma.accountStock.findMany({
+          include: { product: true },
+          orderBy: { createdAt: 'desc' },
+          take: 100,
+        }),
+      ]);
+
+      this.hubCache = {
+        availableStockCount,
+        pendingTopupsCount,
+        recentOrdersCount,
+        monthExpensesAmount: Number(monthExpenses._sum.amount || 0),
+        updatedAt: Date.now(),
+      };
+
+      this.stockCache = {
+        products,
+        accounts,
+        updatedAt: Date.now(),
+      };
+    } catch (err: any) {
+      this.logger.warn(`Hot cache refresh warning: ${err.message}`);
+    } finally {
+      this.isRefreshingCache = false;
+    }
   }
 
   /**
@@ -450,28 +540,21 @@ export class DiscordInteractionsService {
       };
     }
 
-    const [availableStockCount, pendingTopupsCount, recentOrdersCount, monthExpenses] =
-      await Promise.all([
-        this.prisma.accountStock.count({ where: { status: 'AVAILABLE' } }),
-        this.prisma.topupTransaction.count({ where: { status: 'PENDING_VERIFY' } }),
-        this.prisma.order.count({
-          where: {
-            createdAt: { gte: new Date(Date.now() - 24 * 60 * 60 * 1000) },
-          },
-        }),
-        this.prisma.expense.aggregate({
-          where: {
-            paidAt: {
-              gte: new Date(new Date().getFullYear(), new Date().getMonth(), 1),
-            },
-          },
-          _sum: { amount: true },
-        }),
-      ]);
+    if (!this.hubCache) {
+      await this.refreshHotCache();
+    } else {
+      // Refresh asynchronously in background so /admin returns in < 5ms
+      void this.refreshHotCache();
+    }
+
+    const availableStockCount = this.hubCache?.availableStockCount ?? 0;
+    const pendingTopupsCount = this.hubCache?.pendingTopupsCount ?? 0;
+    const recentOrdersCount = this.hubCache?.recentOrdersCount ?? 0;
+    const monthExpensesAmount = this.hubCache?.monthExpensesAmount ?? 0;
 
     const user = this.adminGuard.extractUser(interaction);
 
-    await this.adminAudit.log({
+    void this.adminAudit.log({
       action: 'ADMIN_HUB_ACCESS',
       targetType: 'ADMIN_PANEL',
       actorDiscordId: user.id,
@@ -505,7 +588,7 @@ export class DiscordInteractionsService {
         },
         {
           name: '💸 รายจ่ายเดือนนี้',
-          value: `฿${Number(monthExpenses._sum.amount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })}`,
+          value: `฿${monthExpensesAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })}`,
           inline: true,
         },
         {
@@ -674,59 +757,35 @@ export class DiscordInteractionsService {
   ) {
     const user = this.adminGuard.extractUser(interaction);
 
-    const products = await this.prisma.product.findMany({
-      where: { isActive: true },
-      include: {
-        _count: {
-          select: {
-            stocks: {
-              where: { status: 'AVAILABLE' },
-            },
-          },
-        },
-      },
-      orderBy: { sortOrder: 'asc' },
-    });
+    if (!this.stockCache) {
+      await this.refreshHotCache();
+    } else {
+      void this.refreshHotCache();
+    }
+
+    const products = this.stockCache?.products || [];
+    const allCachedAccounts = this.stockCache?.accounts || [];
 
     const isFiltered = Boolean(selectedProductCode && selectedProductCode !== 'ALL');
     const filteredProduct = isFiltered
       ? products.find((p) => p.code === selectedProductCode || p.id === selectedProductCode)
       : null;
 
-    // Build where condition for account stocks query
-    const stockWhere: any = {};
-    if (filteredProduct) {
-      stockWhere.productId = filteredProduct.id;
-    }
-    if (statusFilter === 'unsold') {
-      stockWhere.status = 'AVAILABLE';
-    } else if (statusFilter === 'sold') {
-      stockWhere.status = 'SOLD';
-    }
+    const productAccounts = filteredProduct
+      ? allCachedAccounts.filter((a) => a.productId === filteredProduct.id)
+      : allCachedAccounts;
 
-    const [totalStats, availableStats, soldStats, accounts] = await Promise.all([
-      this.prisma.accountStock.count(
-        filteredProduct ? { where: { productId: filteredProduct.id } } : undefined,
-      ),
-      this.prisma.accountStock.count({
-        where: {
-          status: 'AVAILABLE',
-          ...(filteredProduct ? { productId: filteredProduct.id } : {}),
-        },
-      }),
-      this.prisma.accountStock.count({
-        where: {
-          status: 'SOLD',
-          ...(filteredProduct ? { productId: filteredProduct.id } : {}),
-        },
-      }),
-      this.prisma.accountStock.findMany({
-        where: stockWhere,
-        include: { product: true },
-        orderBy: { createdAt: 'desc' },
-        take: 30,
-      }),
-    ]);
+    const totalStats = productAccounts.length;
+    const availableStats = productAccounts.filter((a) => a.status === 'AVAILABLE').length;
+    const soldStats = productAccounts.filter((a) => a.status === 'SOLD').length;
+
+    const accounts = productAccounts
+      .filter((a) => {
+        if (statusFilter === 'unsold') return a.status === 'AVAILABLE';
+        if (statusFilter === 'sold') return a.status === 'SOLD';
+        return true;
+      })
+      .slice(0, 30);
 
     const lines: string[] = [];
     for (let i = 0; i < accounts.length; i++) {

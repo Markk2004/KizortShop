@@ -322,4 +322,26 @@ export class HealthService implements OnModuleInit {
       this.logger.error(`Health Watchdog failed to execute: ${err.message}`, err.stack);
     }
   }
+
+  /**
+   * Every 3 minutes: Trigger Vercel ping-back endpoint and keep Supabase Prisma pool warm
+   * so Render Free Tier never sleeps (15m idle limit) and DB TLS connections never go cold.
+   */
+  @Cron('*/3 * * * *')
+  async keepCloudAndDbAwake(): Promise<void> {
+    const frontendUrl =
+      this.config.get<string>('FRONTEND_URL') ||
+      'https://kizort-shop.vercel.app';
+    try {
+      await Promise.allSettled([
+        this.prisma.$queryRaw`SELECT 1`,
+        fetch(`${frontendUrl.replace(/\/$/, '')}/api/ping-backend`, {
+          method: 'GET',
+          headers: { 'User-Agent': 'KaiZort-Render-KeepAlive/1.0' },
+        }),
+      ]);
+    } catch {
+      // ignore transient network errors
+    }
+  }
 }
