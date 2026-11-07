@@ -63,3 +63,9 @@ ENV/
 discord-bot/data/*
 !discord-bot/data/.gitkeep
 discord-bot/test_crop.png
+
+# Markdown Documentation & Agent Rules
+*.md
+**/*.md
+.agents/
+.agent/
