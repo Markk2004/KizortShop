@@ -28,6 +28,8 @@ export class DiscordInteractionsService implements OnModuleInit {
     pendingTopupsCount: number;
     recentOrdersCount: number;
     monthExpensesAmount: number;
+    monthExpensesCount: number;
+    recentExpenses: any[];
     updatedAt: number;
   } | null = null;
 
@@ -68,6 +70,7 @@ export class DiscordInteractionsService implements OnModuleInit {
         pendingTopupsCount,
         recentOrdersCount,
         monthExpenses,
+        recentExpenses,
         products,
         accounts,
       ] = await Promise.all([
@@ -85,6 +88,11 @@ export class DiscordInteractionsService implements OnModuleInit {
             },
           },
           _sum: { amount: true },
+          _count: true,
+        }),
+        this.prisma.expense.findMany({
+          orderBy: { paidAt: 'desc' },
+          take: 5,
         }),
         this.prisma.product.findMany({
           where: { isActive: true },
@@ -111,6 +119,8 @@ export class DiscordInteractionsService implements OnModuleInit {
         pendingTopupsCount,
         recentOrdersCount,
         monthExpensesAmount: Number(monthExpenses._sum.amount || 0),
+        monthExpensesCount: Number(monthExpenses._count || 0),
+        recentExpenses,
         updatedAt: Date.now(),
       };
 
@@ -1246,7 +1256,8 @@ export class DiscordInteractionsService implements OnModuleInit {
     }
 
     // Log Audit
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_STOCK_IMPORT',
       targetType: 'PRODUCT',
       targetId: product.id,
@@ -1519,7 +1530,8 @@ export class DiscordInteractionsService implements OnModuleInit {
 
     const user = this.adminGuard.extractUser(interaction);
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_STOCK_UPDATE',
       targetType: 'ACCOUNT_STOCK',
       targetId: stockId,
@@ -1661,7 +1673,8 @@ export class DiscordInteractionsService implements OnModuleInit {
 
     await this.prisma.accountStock.delete({ where: { id: stockId } });
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_STOCK_DELETE',
       targetType: 'ACCOUNT_STOCK',
       targetId: stockId,
@@ -1731,18 +1744,15 @@ export class DiscordInteractionsService implements OnModuleInit {
    * Expense Manager View (adm:nav:expense)
    */
   private async handleNavExpense(interaction: any, selectedExpId?: string) {
-    const monthStart = new Date(new Date().getFullYear(), new Date().getMonth(), 1);
-    const [monthSummary, recentExpenses] = await Promise.all([
-      this.prisma.expense.aggregate({
-        where: { paidAt: { gte: monthStart } },
-        _sum: { amount: true },
-        _count: true,
-      }),
-      this.prisma.expense.findMany({
-        orderBy: { paidAt: 'desc' },
-        take: 5,
-      }),
-    ]);
+    if (!this.hubCache) {
+      await this.refreshHotCache();
+    } else {
+      void this.refreshHotCache();
+    }
+
+    const monthAmount = this.hubCache?.monthExpensesAmount ?? 0;
+    const monthCount = this.hubCache?.monthExpensesCount ?? 0;
+    const recentExpenses = this.hubCache?.recentExpenses || [];
 
     let targetExpense =
       recentExpenses.find((e) => e.id === selectedExpId) || recentExpenses[0];
@@ -1761,7 +1771,7 @@ export class DiscordInteractionsService implements OnModuleInit {
 
     const embed = {
       title: '💸 ระบบบันทึกและจัดการค่าใช้จ่าย (Expense Manager)',
-      description: `**ยอดรายจ่ายเดือนนี้:** ฿${Number(monthSummary._sum.amount || 0).toLocaleString('th-TH', { minimumFractionDigits: 2 })} (${monthSummary._count} รายการ)\n\n**5 รายการล่าสุด:**\n${lines.length > 0 ? lines.join('\n') : 'ยังไม่มีการบันทึกรายจ่าย'}${
+      description: `**ยอดรายจ่ายเดือนนี้:** ฿${monthAmount.toLocaleString('th-TH', { minimumFractionDigits: 2 })} (${monthCount} รายการ)\n\n**5 รายการล่าสุด:**\n${lines.length > 0 ? lines.join('\n') : 'ยังไม่มีการบันทึกรายจ่าย'}${
         targetExpense
           ? `\n\n🎯 **กำลังเลือก:** **${targetExpense.title}** (฿${Number(targetExpense.amount).toLocaleString()}) - \`${targetExpense.category}\``
           : ''
@@ -1970,7 +1980,8 @@ export class DiscordInteractionsService implements OnModuleInit {
       },
     });
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_EXPENSE_CREATE',
       targetType: 'EXPENSE',
       targetId: expense.id,
@@ -2155,7 +2166,8 @@ export class DiscordInteractionsService implements OnModuleInit {
       },
     });
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_EXPENSE_UPDATE',
       targetType: 'EXPENSE',
       targetId: expId,
@@ -2296,7 +2308,8 @@ export class DiscordInteractionsService implements OnModuleInit {
 
     await this.prisma.expense.delete({ where: { id: expId } });
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_EXPENSE_DELETE',
       targetType: 'EXPENSE',
       targetId: expId,
@@ -2504,7 +2517,8 @@ export class DiscordInteractionsService implements OnModuleInit {
         return { topup, verified, totalCredit };
       });
 
-      await this.adminAudit.log({
+      void this.refreshHotCache();
+    void this.adminAudit.log({
         action: 'ADMIN_TOPUP_APPROVE',
         targetType: 'TOPUP',
         targetId: topupId,
@@ -2614,7 +2628,8 @@ export class DiscordInteractionsService implements OnModuleInit {
       },
     });
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_TOPUP_REJECT',
       targetType: 'TOPUP',
       targetId: topupId,
@@ -2918,7 +2933,8 @@ export class DiscordInteractionsService implements OnModuleInit {
       }
     }
 
-    await this.adminAudit.log({
+    void this.refreshHotCache();
+    void this.adminAudit.log({
       action: 'ADMIN_REVEAL_ORDER_CREDENTIAL',
       targetType: 'ORDER',
       targetId: orderId,
@@ -3055,7 +3071,8 @@ export class DiscordInteractionsService implements OnModuleInit {
         return ord;
       });
 
-      await this.adminAudit.log({
+      void this.refreshHotCache();
+    void this.adminAudit.log({
         action: 'ADMIN_ORDER_REFUND',
         targetType: 'ORDER',
         targetId: orderId,
@@ -3230,7 +3247,8 @@ export class DiscordInteractionsService implements OnModuleInit {
         return ord;
       });
 
-      await this.adminAudit.log({
+      void this.refreshHotCache();
+    void this.adminAudit.log({
         action: 'ADMIN_ORDER_CANCEL',
         targetType: 'ORDER',
         targetId: orderId,
@@ -3412,7 +3430,8 @@ export class DiscordInteractionsService implements OnModuleInit {
         }
       }
 
-      await this.adminAudit.log({
+      void this.refreshHotCache();
+    void this.adminAudit.log({
         action: 'ADMIN_ORDER_RESEND',
         targetType: 'ORDER',
         targetId: orderId,

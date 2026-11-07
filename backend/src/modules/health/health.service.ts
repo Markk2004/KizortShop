@@ -176,6 +176,19 @@ export class HealthService implements OnModuleInit {
             error: isUp ? undefined : `HTTP ${response.status} ${response.statusText}`,
           };
         } catch (err: any) {
+          if (frontendUrl.includes('localhost') || frontendUrl.includes('127.0.0.1')) {
+            try {
+              const cloudUrl = 'https://kizort-shop.vercel.app';
+              const cloudRes = await fetch(cloudUrl, { method: 'GET' });
+              if (cloudRes.ok) {
+                return {
+                  status: 'UP' as const,
+                  url: cloudUrl,
+                  latencyMs: Date.now() - feStart,
+                };
+              }
+            } catch {}
+          }
           return {
             status: 'DOWN' as const,
             url: frontendUrl,
