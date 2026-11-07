@@ -82,3 +82,29 @@ services:
         value: https://kizortshop-1.onrender.com
       - key: BOT_API_KEY
         sync: false
+
+  - type: web
+    name: kaizort-frontend
+    env: node
+    rootDir: frontend
+    plan: free
+    region: singapore
+    buildCommand: npm install --include=dev && npm run build
+    startCommand: node .next/standalone/server.js
+    envVars:
+      - key: NODE_ENV
+        value: production
+      - key: PORT
+        value: 3000
+      - key: HOSTNAME
+        value: 0.0.0.0
+      - key: NEXT_PUBLIC_API_URL
+        value: https://kizortshop-1.onrender.com/api/v1
+      - key: NEXT_PUBLIC_API_BASE_URL
+        value: https://kizortshop-1.onrender.com/api/v1
+      - key: NEXT_PUBLIC_SUPABASE_URL
+        value: https://qidraqabrlnuurnlkwko.supabase.co
+      - key: NEXT_PUBLIC_SUPABASE_ANON_KEY
+        value: eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6InFpZHJhcWFicmxudXVybmxrd2tvIiwicm9sZSI6ImFub24iLCJpYXQiOjE3OTI0MDM0OTEsImV4cCI6MjEwNzk3OTQ5MX0.TtueyqjsoThVmBR9pHuzCcvxfM5uCk6TSGBwIamdTgA
+      - key: NEXT_PUBLIC_USE_MOCKS
+        value: "false"

@@ -36,6 +36,7 @@ async function bootstrap() {
       const isAllowed =
         allowedOrigins.includes(origin) ||
         origin.endsWith('.vercel.app') ||
+        origin.endsWith('.onrender.com') ||
         process.env.NODE_ENV !== 'production';
 
       if (isAllowed) {

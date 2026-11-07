@@ -2,21 +2,26 @@
  * The only place that talks to the backend.
  * Feature `api.ts` files call these helpers; components never call fetch directly.
  */
-function getBaseUrl(): string {
+const DEFAULT_API_URL =
+  process.env.NODE_ENV === "production"
+    ? "https://kizortshop-1.onrender.com/api/v1"
+    : "http://localhost:4000/api/v1";
+
+export function getBaseUrl(): string {
   if (typeof window === "undefined") {
-    // Server-side execution (e.g. inside Docker SSR runtime)
+    // Server-side execution (e.g. inside Docker SSR runtime or Vercel SSR)
     return (
       process.env.INTERNAL_API_URL ||
       process.env.NEXT_PUBLIC_API_URL ||
       process.env.NEXT_PUBLIC_API_BASE_URL ||
-      "http://localhost:4000/api/v1"
+      DEFAULT_API_URL
     );
   }
   // Client-side execution (inside the browser)
   return (
     process.env.NEXT_PUBLIC_API_URL ||
     process.env.NEXT_PUBLIC_API_BASE_URL ||
-    "http://localhost:4000/api/v1"
+    DEFAULT_API_URL
   );
 }
 

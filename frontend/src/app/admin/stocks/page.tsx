@@ -19,7 +19,7 @@ import {
   verifySearchInput,
   type SearchFieldMode,
 } from "@/features/admin/components/AdminSmartFilterBar";
-import { apiDelete } from "@/lib/api-client";
+import { apiDelete, getBaseUrl } from "@/lib/api-client";
 
 type StockMode = "POOL" | "UNIQUE_1TO1";
 type CredentialFormat = "USER_PASS" | "USER_PASS_2FA" | "COOKIE_TOKEN" | "REDEEM_KEY";
@@ -197,7 +197,7 @@ export default function AdminStocksPage() {
   const fetchStocksFromApi = async () => {
     try {
       setLoading(true);
-      const res = await fetch("http://localhost:4000/api/v1/admin/stocks?pageSize=100");
+      const res = await fetch(`${getBaseUrl()}/admin/stocks?pageSize=100`);
       if (res.ok) {
         const json = await res.json();
         if (json.data && Array.isArray(json.data)) {
@@ -213,7 +213,7 @@ export default function AdminStocksPage() {
 
   const fetchProductsFromApi = async () => {
     try {
-      const res = await fetch("http://localhost:4000/api/v1/admin/products");
+      const res = await fetch(`${getBaseUrl()}/admin/products`);
       if (res.ok) {
         const json = await res.json();
         const prods = json.data || json;
@@ -255,7 +255,7 @@ export default function AdminStocksPage() {
     const target = stocks.find((s) => s.id === id);
     if (target && !target.credentials) {
       try {
-        const res = await fetch(`http://localhost:4000/api/v1/admin/stocks/${id}/reveal`, {
+        const res = await fetch(`${getBaseUrl()}/admin/stocks/${id}/reveal`, {
           method: "POST",
         });
         if (res.ok) {
@@ -296,7 +296,7 @@ export default function AdminStocksPage() {
     }
 
     try {
-      const res = await fetch("http://localhost:4000/api/v1/admin/stocks/batch", {
+      const res = await fetch(`${getBaseUrl()}/admin/stocks/batch`, {
         method: "POST",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -358,7 +358,7 @@ export default function AdminStocksPage() {
     );
 
     try {
-      await fetch(`http://localhost:4000/api/v1/admin/stocks/${item.id}/status`, {
+      await fetch(`${getBaseUrl()}/admin/stocks/${item.id}/status`, {
         method: "PATCH",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ status: nextStatus, defectReason }),
@@ -381,7 +381,7 @@ export default function AdminStocksPage() {
     if (!editingItem) return;
 
     try {
-      await fetch(`http://localhost:4000/api/v1/admin/stocks/${editingItem.id}/details`, {
+      await fetch(`${getBaseUrl()}/admin/stocks/${editingItem.id}/details`, {
         method: "PUT",
         headers: { "Content-Type": "application/json" },
         body: JSON.stringify({
@@ -427,7 +427,7 @@ export default function AdminStocksPage() {
     let textToCopy = item.credentials;
     if (!textToCopy) {
       try {
-        const res = await fetch(`http://localhost:4000/api/v1/admin/stocks/${item.id}/reveal`, {
+        const res = await fetch(`${getBaseUrl()}/admin/stocks/${item.id}/reveal`, {
           method: "POST",
         });
         if (res.ok) {
