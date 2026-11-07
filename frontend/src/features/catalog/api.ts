@@ -57,9 +57,6 @@ function applyProductAvailability(products: Product[]): Product[] {
 }
 
 export async function getCategories(): Promise<Category[]> {
-  if (typeof window === "undefined") {
-    return applyDynamicAvailability(mockCategories);
-  }
   try {
     const list = await getAdminCategories();
     if (list && list.length > 0) {
@@ -70,7 +67,6 @@ export async function getCategories(): Promise<Category[]> {
 }
 
 async function fetchRealStorefrontProducts(): Promise<Product[] | null> {
-  if (typeof window === "undefined") return null;
   try {
     const apiData = await fetchAdminProducts();
     if (apiData && Array.isArray(apiData)) {

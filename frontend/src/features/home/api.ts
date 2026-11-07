@@ -5,7 +5,8 @@ import type { RecentOrder, Review, StoreStat } from "@/types";
 export async function getRecentOrders(): Promise<RecentOrder[]> {
   if (USE_MOCKS) return mockRecentOrders;
   try {
-    return await apiGet<RecentOrder[]>("/orders/recent");
+    const data = await apiGet<RecentOrder[]>("/orders/recent");
+    return Array.isArray(data) && data.length > 0 ? data : mockRecentOrders;
   } catch {
     return mockRecentOrders;
   }
@@ -14,7 +15,8 @@ export async function getRecentOrders(): Promise<RecentOrder[]> {
 export async function getStoreStats(): Promise<StoreStat[]> {
   if (USE_MOCKS) return mockStats;
   try {
-    return await apiGet<StoreStat[]>("/stats");
+    const data = await apiGet<StoreStat[]>("/stats");
+    return Array.isArray(data) && data.length > 0 ? data : mockStats;
   } catch {
     return mockStats;
   }
@@ -23,7 +25,8 @@ export async function getStoreStats(): Promise<StoreStat[]> {
 export async function getLatestReviews(): Promise<Review[]> {
   if (USE_MOCKS) return mockReviews;
   try {
-    return await apiGet<Review[]>("/reviews?limit=3");
+    const data = await apiGet<Review[]>("/reviews?limit=3");
+    return Array.isArray(data) && data.length > 0 ? data : mockReviews;
   } catch {
     return mockReviews;
   }

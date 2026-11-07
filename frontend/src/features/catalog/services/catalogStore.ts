@@ -78,7 +78,6 @@ function setLocalProducts(prods: GraphiteProduct[]) {
 // ---------------- CATEGORIES OPERATIONS ----------------
 
 export async function getAdminCategories(): Promise<Category[]> {
-  if (typeof window === "undefined") return mockCategories;
   try {
     const apiData = await fetchAdminCategories();
     if (apiData && Array.isArray(apiData)) {
@@ -212,7 +211,6 @@ export async function deleteAdminCategory(categoryId: string): Promise<void> {
 // ---------------- PRODUCTS OPERATIONS ----------------
 
 export async function getAdminProducts(): Promise<GraphiteProduct[]> {
-  if (typeof window === "undefined") return initialAdminProducts;
   try {
     const apiData = await fetchAdminProducts();
     if (apiData && Array.isArray(apiData)) {

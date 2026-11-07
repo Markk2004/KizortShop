@@ -22,9 +22,9 @@ export class OrdersController {
 
   @Get('recent')
   async getRecentOrders(@Query('limit') limit?: string) {
-    return await this.ordersService.listOrders({
-      limit: limit ? parseInt(limit, 10) : 10,
-    });
+    return await this.ordersService.listRecentTickerOrders(
+      limit ? parseInt(limit, 10) : 10,
+    );
   }
 
   @Get()
@@ -38,5 +38,25 @@ export class OrdersController {
       status,
       limit: limit ? parseInt(limit, 10) : undefined,
     });
+  }
+}
+
+@Controller()
+export class StorefrontController {
+  constructor(private readonly ordersService: OrdersService) {}
+
+  @Get('products')
+  async getProducts(@Query('category') category?: string) {
+    return await this.ordersService.getPublicProducts(category);
+  }
+
+  @Get('stats')
+  async getStats() {
+    return await this.ordersService.getPublicStoreStats();
+  }
+
+  @Get('reviews')
+  getReviews() {
+    return this.ordersService.getPublicReviews();
   }
 }

@@ -167,4 +167,185 @@ export class OrdersService {
       },
     });
   }
+
+  async listRecentTickerOrders(limit = 10) {
+    const [orders, soldStocks] = await Promise.all([
+      this.prisma.order.findMany({
+        take: limit,
+        orderBy: { createdAt: 'desc' },
+        include: {
+          product: { select: { title: true } },
+          user: { select: { username: true } },
+        },
+      }),
+      this.prisma.accountStock.findMany({
+        where: { status: 'SOLD' },
+        take: limit,
+        orderBy: { updatedAt: 'desc' },
+        include: {
+          product: { select: { title: true, price: true } },
+        },
+      }),
+    ]);
+
+    const items: Array<{
+      id: string;
+      username: string;
+      productName: string;
+      amount: number;
+      minutesAgo: number;
+      ts: number;
+    }> = [];
+
+    for (const o of orders) {
+      const rawUser = o.user?.username || 'Customer';
+      const maskedUser = rawUser.length > 3 ? `${rawUser.slice(0, 3)}***` : `${rawUser}***`;
+      const mins = Math.max(1, Math.floor((Date.now() - new Date(o.createdAt).getTime()) / 60000));
+      items.push({
+        id: o.id,
+        username: maskedUser,
+        productName: o.product?.title || 'สินค้าเกม',
+        amount: Number(o.amount),
+        minutesAgo: mins,
+        ts: new Date(o.createdAt).getTime(),
+      });
+    }
+
+    for (const s of soldStocks) {
+      const rawUser = s.username || s.maskedIdentity || 'Player';
+      const maskedUser = rawUser.includes('***')
+        ? rawUser
+        : rawUser.length > 4
+          ? `${rawUser.slice(0, 4)}***`
+          : `${rawUser}***`;
+      let price = 0;
+      if (s.sellingPriceText) {
+        const parsed = parseFloat(s.sellingPriceText.replace(/[^0-9.]/g, ''));
+        if (!isNaN(parsed) && parsed > 0) price = parsed;
+      }
+      if (price === 0 && s.product?.price) {
+        price = Number(s.product.price);
+      }
+      const soldDate = s.soldAt || s.updatedAt || s.createdAt;
+      const mins = Math.max(1, Math.floor((Date.now() - new Date(soldDate).getTime()) / 60000));
+      items.push({
+        id: s.id,
+        username: maskedUser,
+        productName: s.details || s.farmedMaps || s.product?.title || 'ไก่ตัน Break And Steal Egg',
+        amount: price || 150,
+        minutesAgo: mins,
+        ts: new Date(soldDate).getTime(),
+      });
+    }
+
+    items.sort((a, b) => b.ts - a.ts);
+    return items.slice(0, limit).map(({ ts, ...rest }) => rest);
+  }
+
+  async getPublicProducts(categorySlug?: string) {
+    const products = await this.prisma.product.findMany({
+      where: {
+        isActive: true,
+        code: { not: 'KAITUN-VAULT-POOL' },
+      },
+      include: {
+        category: true,
+        stocks: { select: { status: true } },
+      },
+      orderBy: { createdAt: 'desc' },
+    });
+
+    const mapped = products.map((p) => {
+      const stock = p.stocks.filter((s) => s.status === 'AVAILABLE').length;
+      return {
+        id: p.id,
+        code: p.code,
+        categoryId: p.category?.slug || p.categoryId,
+        title: p.title,
+        subtitle: p.description || p.category?.name || 'ทั่วไป',
+        image: p.image || '/assets/blox_fruits_category.jpg',
+        tags: [p.category?.name || 'ทั่วไป', `SKU: ${p.code}`],
+        price: Number(p.price),
+        originalPrice: p.originalPrice ? Number(p.originalPrice) : undefined,
+        stock,
+        badge: p.badge || undefined,
+        status: p.isActive && stock > 0 ? 'AVAILABLE' : 'OUT_OF_STOCK',
+      };
+    });
+
+    if (categorySlug) {
+      return mapped.filter(
+        (p) =>
+          p.categoryId === categorySlug ||
+          p.tags.some((t) => t.toLowerCase().includes(categorySlug.toLowerCase())),
+      );
+    }
+    return mapped;
+  }
+
+  async getPublicStoreStats() {
+    const [usersCount, categoriesCount, availStockCount, soldStockCount, ordersCount] =
+      await Promise.all([
+        this.prisma.user.count(),
+        this.prisma.category.count({ where: { isActive: true } }),
+        this.prisma.accountStock.count({ where: { status: 'AVAILABLE' } }),
+        this.prisma.accountStock.count({ where: { status: 'SOLD' } }),
+        this.prisma.order.count({ where: { status: 'COMPLETED' } }),
+      ]);
+
+    return [
+      {
+        id: 'users',
+        label: 'สมาชิกลงทะเบียน',
+        value: `${usersCount.toLocaleString()}`,
+        note: 'ซิงค์สดจาก Supabase',
+        noteTone: 'positive',
+      },
+      {
+        id: 'categories',
+        label: 'หมวดหมู่สินค้า',
+        value: `${categoriesCount.toLocaleString()}`,
+        note: 'ครอบคลุมทุกแมพยอดนิยม',
+      },
+      {
+        id: 'stock',
+        label: 'สต็อกพร้อมจัดส่ง',
+        value: `${availStockCount.toLocaleString()}`,
+        note: 'ระบบจัดส่งอัตโนมัติ 24 ชม.',
+        noteTone: 'positive',
+      },
+      {
+        id: 'orders',
+        label: 'คำสั่งซื้อสำเร็จ',
+        value: `${(soldStockCount + ordersCount).toLocaleString()}`,
+        note: 'การันตีความปลอดภัย 100%',
+      },
+    ];
+  }
+
+  getPublicReviews() {
+    return [
+      {
+        id: 'r1',
+        username: 'saka***',
+        productName: 'ไก่ตันที่ขุด Break And Steal Egg',
+        rating: 5,
+        comment: 'ระบบส่งไวมากครับ ได้ของครบตามที่เขียนไว้ในรายละเอียด การันตีความปลอดภัย',
+      },
+      {
+        id: 'r2',
+        username: 'karo***',
+        productName: 'ไก่ตันที่ขุด Break And Steal Egg',
+        rating: 5,
+        comment: 'สแกนเติมเงินผ่าน QR ไวมาก หักเงินแล้วของเด้งในหน้าประวัติทันที บริการประทับใจ',
+      },
+      {
+        id: 'r3',
+        username: 'anak***',
+        productName: 'ตัว 1 in 880 บัพตัน',
+        rating: 5,
+        comment: 'เข้าเล่นได้ปกติทุกไอดี สะอาด ปลอดภัย ไม่มีดึงกลับอย่างแน่นอน แนะนำร้านนี้ครับ',
+      },
+    ];
+  }
 }
