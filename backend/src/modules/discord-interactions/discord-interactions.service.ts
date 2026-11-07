@@ -39,7 +39,7 @@ export class DiscordInteractionsService implements OnModuleInit {
     updatedAt: number;
   } | null = null;
 
-  private isRefreshingCache = false;
+  private refreshPromise: Promise<void> | null = null;
 
   constructor(
     private readonly prisma: PrismaService,
@@ -62,8 +62,8 @@ export class DiscordInteractionsService implements OnModuleInit {
 
   @Cron('*/40 * * * * *')
   async refreshHotCache(): Promise<void> {
-    if (this.isRefreshingCache) return;
-    this.isRefreshingCache = true;
+    if (this.refreshPromise) return this.refreshPromise;
+    this.refreshPromise = (async () => {
     try {
       const [
         availableStockCount,
@@ -132,8 +132,10 @@ export class DiscordInteractionsService implements OnModuleInit {
     } catch (err: any) {
       this.logger.warn(`Hot cache refresh warning: ${err.message}`);
     } finally {
-      this.isRefreshingCache = false;
+      this.refreshPromise = null;
     }
+    })();
+    return this.refreshPromise;
   }
 
   /**
@@ -320,7 +322,10 @@ export class DiscordInteractionsService implements OnModuleInit {
         const selectedSku = interaction.data?.values?.[0];
         return await this.handleNavStock(interaction, selectedSku, 'all');
       }
-      if (customId.startsWith('adm:stock:status:')) {
+      if (
+        customId.startsWith('adm:stock:status:') ||
+        customId.startsWith('adm:stock:refresh:')
+      ) {
         const parts = customId.split(':');
         const stFilter = parts[3] || 'all';
         const pCode = parts[4] && parts[4] !== 'ALL' ? parts[4] : undefined;
@@ -905,7 +910,7 @@ export class DiscordInteractionsService implements OnModuleInit {
             type: 2,
             style: 2,
             label: '🔄 รีเฟรช',
-            custom_id: `adm:stock:status:${statusFilter}:${currentProductVal}`,
+            custom_id: `adm:stock:refresh:${statusFilter}:${currentProductVal}`,
           },
         ],
       },
@@ -950,7 +955,7 @@ export class DiscordInteractionsService implements OnModuleInit {
     return {
       type: isSlashCommand ? 4 : 7,
       data: {
-        flags: 64, // Ephemeral: Only admin can see decrypted credentials!
+        ...(isSlashCommand ? { flags: 64 } : {}),
         embeds: [embed],
         components,
       },
